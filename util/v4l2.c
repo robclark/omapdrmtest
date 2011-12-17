@@ -35,6 +35,184 @@ v4l2_usage(void)
 {
 	MSG("V4L2 Capture Options:");
 	MSG("\t-c WxH@fourcc\tset capture dimensions/format");
+	MSG("\t-m\t\tdo MCF setup");
+}
+
+/* media_* helpers to do the MCF dance to get things configured properly
+ * so that we can set the specified format on the output device.  For
+ * non-MCF cameras this can just be skipped.
+ */
+#include <linux/media.h>
+#include <linux/v4l2-subdev.h>
+
+static int
+media_open_entity(struct media_entity_desc *entity)
+{
+	struct stat devstat;
+	char devname[32];
+	char sysname[32];
+	char target[1024];
+	char *p;
+	int ret;
+
+	sprintf(sysname, "/sys/dev/char/%u:%u", entity->v4l.major,
+			entity->v4l.minor);
+	ret = readlink(sysname, target, sizeof(target));
+	if (ret < 0)
+		return -errno;
+
+
+	target[ret] = '\0';
+	p = strrchr(target, '/');
+	if (p == NULL)
+		return -EINVAL;
+
+	sprintf(devname, "/dev/%s", p + 1);
+MSG("\t%s -> %s -> %s", sysname, target, devname);
+	ret = stat(devname, &devstat);
+	if (ret < 0)
+		return -errno;
+
+	/* Sanity check: udev might have reordered the device nodes.
+	 * Make sure the major/minor match. We should really use
+	 * libudev.
+	 */
+	if (major(devstat.st_rdev) == entity->v4l.major &&
+	    minor(devstat.st_rdev) == entity->v4l.minor) {
+		return open(devname, O_RDWR);
+	}
+
+	return -1;
+}
+
+static int
+media_find_entity(int fd, struct media_entity_desc *entity,
+		uint32_t type, uint32_t entity_id)
+{
+	int id, ret = 0;
+
+	for (id = 0; ; id = entity->id) {
+		memset(entity, 0, sizeof(*entity));
+		entity->id = id | MEDIA_ENT_ID_FLAG_NEXT;
+
+		ret = ioctl(fd, MEDIA_IOC_ENUM_ENTITIES, entity);
+		if (ret) {
+			ERROR("MEDIA_IOC_ENUM_ENTITIES failed: %s (%d)",
+					strerror(errno), ret);
+			break;
+		}
+
+MSG("\tfound entity: %s type=%08x, flags=%08x, group_id=%d, pads=%d, links=%d",
+entity->name, entity->type, entity->flags, entity->group_id,
+entity->pads, entity->links);
+
+		if ((entity->type == type) || (entity->id == entity_id)) {
+			return 0;
+		}
+	}
+
+	return ret;
+}
+
+static void
+media_configure(struct media_entity_desc *entity,
+		struct v4l2_format *format, int pad)
+{
+	struct v4l2_subdev_format ent_format = {
+			.pad = pad,
+			.which = V4L2_SUBDEV_FORMAT_ACTIVE,
+			.format = {
+					.width  = format->fmt.pix.width,
+					.height = format->fmt.pix.height,
+					.code   = V4L2_MBUS_FMT_UYVY8_1X16,
+					.field  = V4L2_FIELD_NONE,
+					.colorspace = V4L2_COLORSPACE_JPEG,
+			},
+	};
+	int fd, ret;
+
+	fd = media_open_entity(entity);
+	if (fd < 0) {
+		ERROR("could not open media device: \"%s\" (%d:%d)", entity->name,
+				entity->v4l.major, entity->v4l.minor);
+		return;
+	}
+
+	MSG("Setting format for: \"%s\" (%d)", entity->name, pad);
+	ret = ioctl(fd, VIDIOC_SUBDEV_S_FMT, &ent_format);
+	if (ret) {
+		MSG("Could not configure: %s (%d)", strerror(errno), ret);
+	}
+}
+
+/* walk the graph and attempt to configure all the nodes to the same settings.
+ * This works for smart-sensor with no element in between that can convert/
+ * scale..  If the sensor can't handle the settings, then S_FMT just fails
+ * and hopefully some element in between can pick up the slack.
+ */
+static int
+media_setup(struct v4l2_format *format)
+{
+	struct media_entity_desc entity;
+	int fd, ret;
+
+	fd = open("/dev/media0", O_RDWR);
+	if (fd < 0) {
+		ERROR("could not open MCF: %s (%d)", strerror(errno), ret);
+		return fd;
+	}
+
+	ret = media_find_entity(fd, &entity, MEDIA_ENT_T_V4L2_SUBDEV_SENSOR, ~0);
+	if (ret) {
+		return ret;
+	}
+
+	/* now walk the graph to the output, configure everything on the way: */
+	do {
+		struct media_link_desc links[10];
+		struct media_links_enum link_enum = {
+				.entity = entity.id,
+				.links = links,
+		};
+		int i;
+
+		ret = ioctl(fd, MEDIA_IOC_ENUM_LINKS, &link_enum);
+		if (ret) {
+			ERROR("MEDIA_IOC_ENUM_LINKS failed: %s (%d)",
+					strerror(errno), ret);
+			return ret;
+		}
+
+		for (i = 0; i < entity.links; i++) {
+			if (links[i].source.entity == entity.id) {
+				// XXX maybe if there are multiple links, we should prefer
+				// an enabled link, otherwise just pick one..
+
+				media_configure(&entity, format, links[i].source.index);
+				media_configure(&entity, format, links[i].sink.index);
+
+				/* lets take this link.. */
+				if (!(links[i].flags & MEDIA_LNK_FL_ENABLED)) {
+					links[i].flags |= MEDIA_LNK_FL_ENABLED;
+					ret = ioctl(fd, MEDIA_IOC_SETUP_LINK, &links[i]);
+					if (ret) {
+						ERROR("MEDIA_IOC_SETUP_LINK failed: %s (%d)",
+								strerror(errno), errno);
+//						return ret;
+					}
+				}
+
+				ret = media_find_entity(fd, &entity, ~0, links[i].sink.entity);
+				if (ret) {
+					return ret;
+				}
+
+				break;
+			}
+		}
+	} while (entity.type != MEDIA_ENT_T_DEVNODE_V4L);
+
+	return 0;
 }
 
 /* Open v4l2 (and media0??) XXX */
@@ -46,6 +224,7 @@ v4l2_open(int argc, char **argv)
 	};
 	struct v4l2 *v4l2;
 	int i, ret;
+	bool mcf = false;
 
 	v4l2 = calloc(1, sizeof(*v4l2));
 	v4l2->fd = open("/dev/video0", O_RDWR);
@@ -74,6 +253,8 @@ v4l2_open(int argc, char **argv)
 				goto fail;
 			}
 			format.fmt.pix.pixelformat = FOURCC_STR(fourccstr);
+		} else if (!strcmp(argv[i], "-m")) {
+			mcf = true;
 		} else {
 			continue;
 		}
@@ -87,6 +268,13 @@ v4l2_open(int argc, char **argv)
 				format.fmt.pix.width, format.fmt.pix.height,
 				(char *)&format.fmt.pix.pixelformat);
 		goto fail;
+	}
+
+	if (mcf) {
+		ret = media_setup(&format);
+		if (ret < 0) {
+			goto fail;
+		}
 	}
 
 	ret = ioctl(v4l2->fd, VIDIOC_S_FMT, &format);

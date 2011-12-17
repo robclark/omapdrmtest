@@ -127,5 +127,9 @@ void fill(struct buffer *buf, int i);
     (type *)((char *)(ptr) - (char *) &((type *)0)->member)
 #endif
 
+typedef enum {
+	false = 0,
+	true = 1
+} bool;
 
 #endif /* UTIL_H_ */

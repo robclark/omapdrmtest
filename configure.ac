@@ -47,7 +47,7 @@ fi
 AM_CONDITIONAL(ENABLE_V4L2_DMABUF, [test "x$HAVE_V4L2_DMABUF" = xyes])
 
 # Check optional X11:
-PKG_CHECK_MODULES(X11, x11 libdri2, [HAVE_X11=yes], [HAVE_X11=no])
+PKG_CHECK_MODULES(X11, x11 dri2, [HAVE_X11=yes], [HAVE_X11=no])
 if test "x$HAVE_X11" = "xyes"; then
 	AC_DEFINE(HAVE_X11, 1, [Have X11 support])
 else

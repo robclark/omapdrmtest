@@ -19,11 +19,14 @@ noinst_LTLIBRARIES = libutil.la
 
 libutil_la_SOURCES = \
 	display-kms.c \
-	v4l2.c \
 	util.c
 
 if ENABLE_X11
 libutil_la_SOURCES += display-x11.c
+endif
+
+if ENABLE_V4L2_DMABUF
+libutil_la_SOURCES += v4l2.c
 endif
 
 if ENABLE_DCE

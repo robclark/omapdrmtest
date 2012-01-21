@@ -34,6 +34,18 @@ AC_PROG_LIBTOOL
 # Obtain compiler/linker options for depedencies
 PKG_CHECK_MODULES(DRM, libdrm libdrm_omap)
 
+# Check for v4l2 dmabuf support:
+AC_CHECK_MEMBER([struct v4l2_buffer.m.fd],
+	[HAVE_V4L2_DMABUF=yes],
+	[HAVE_V4L2_DMABUF=no],
+	[[#include <linux/videodev2.h>]])
+if test "x$HAVE_V4L2_DMABUF" = "xyes"; then
+	AC_DEFINE(HAVE_V4L2_DMABUF, 1, [Have V4L2 DMABUF support])
+else
+	AC_MSG_WARN([No V4L2 DMABUF support detected, disabling V4L2 DMABUF tests])
+fi
+AM_CONDITIONAL(ENABLE_V4L2_DMABUF, [test "x$HAVE_V4L2_DMABUF" = xyes])
+
 # Check optional X11:
 PKG_CHECK_MODULES(X11, x11 libdri2, [HAVE_X11=yes], [HAVE_X11=no])
 if test "x$HAVE_X11" = "xyes"; then

@@ -16,7 +16,11 @@
 #  
 
 SUBDIRS = util
-bin_PROGRAMS = fliptest dmabuftest
+bin_PROGRAMS = fliptest
+
+if ENABLE_V4L2_DMABUF
+bin_PROGRAMS += dmabuftest
+endif
 
 if ENABLE_DCE
 bin_PROGRAMS += viddec3test
@@ -28,8 +32,10 @@ CFLAGS = @DRM_CFLAGS@ @X11_CFLAGS@ @DCE_CFLAGS@ @WARN_CFLAGS@ -I$(top_srcdir)/ut
 fliptest_SOURCES = fliptest.c
 fliptest_LDADD = $(LDADD_COMMON)
 
+if ENABLE_V4L2_DMABUF
 dmabuftest_SOURCES = dmabuftest.c
 dmabuftest_LDADD = $(LDADD_COMMON)
+endif
 
 if ENABLE_DCE
 viddec3test_SOURCES = viddec3test.c

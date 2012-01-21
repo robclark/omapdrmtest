@@ -24,6 +24,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include <omap_drm.h>
 #include <omap_drmif.h>
@@ -39,8 +40,10 @@
  */
 
 struct buffer {
-	uint32_t fourcc, width, height, stride;
-	struct omap_bo *bo;
+	uint32_t fourcc, width, height;
+	int nbo;
+	struct omap_bo *bo[4];
+	uint32_t pitches[4];
 };
 
 struct display {
@@ -52,6 +55,8 @@ struct display {
 	struct buffer ** (*get_vid_buffers)(struct display *disp,
 			uint32_t n, uint32_t fourcc, uint32_t w, uint32_t h);
 	int (*post_buffer)(struct display *disp, struct buffer *buf);
+	int (*post_vid_buffer)(struct display *disp, struct buffer *buf,
+			uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 };
 
 /* Print display related help */
@@ -84,6 +89,20 @@ disp_post_buffer(struct display *disp, struct buffer *buf)
 	return disp->post_buffer(disp, buf);
 }
 
+/* flip to / post the specified video buffer */
+static inline int
+disp_post_vid_buffer(struct display *disp, struct buffer *buf,
+		uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+	return disp->post_vid_buffer(disp, buf, x, y, w, h);
+}
+
+/* helper to setup the display for apps that just need video with
+ * no flipchain on the GUI layer
+ */
+struct buffer * disp_get_fb(struct display *disp);
+
+
 /* V4L2 utilities:
  */
 
@@ -93,7 +112,8 @@ struct v4l2;
 void v4l2_usage(void);
 
 /* Open v4l2 (and media0??) XXX */
-struct v4l2 * v4l2_open(int argc, char **argv);
+struct v4l2 * v4l2_open(int argc, char **argv, uint32_t *fourcc,
+		uint32_t *width, uint32_t *height);
 
 /* Share the buffers w/ v4l2 via dmabuf */
 int v4l2_reqbufs(struct v4l2 *v4l2, struct buffer **bufs, uint32_t n);

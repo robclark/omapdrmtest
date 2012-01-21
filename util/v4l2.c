@@ -217,7 +217,8 @@ media_setup(struct v4l2_format *format)
 
 /* Open v4l2 (and media0??) XXX */
 struct v4l2 *
-v4l2_open(int argc, char **argv)
+v4l2_open(int argc, char **argv, uint32_t *fourcc,
+		uint32_t *width, uint32_t *height)
 {
 	struct v4l2_format format = {
 			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
@@ -269,6 +270,10 @@ v4l2_open(int argc, char **argv)
 				(char *)&format.fmt.pix.pixelformat);
 		goto fail;
 	}
+
+	*fourcc = format.fmt.pix.pixelformat;
+	*width  = format.fmt.pix.width;
+	*height = format.fmt.pix.height;
 
 	if (mcf) {
 		ret = media_setup(&format);
@@ -328,14 +333,15 @@ v4l2_reqbufs(struct v4l2 *v4l2, struct buffer **bufs, uint32_t n)
 	}
 
 	for (i = 0; i < reqbuf.count; i++) {
+		assert(bufs[i]->nbo == 1); /* TODO add multi-planar support */
 		v4l2->v4l2bufs[i] = (struct v4l2_buffer){
 			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
 					.memory = V4L2_MEMORY_DMABUF,
 					.index = i,
-					.m.fd = omap_bo_dmabuf(bufs[i]->bo),
+					.m.fd = omap_bo_dmabuf(bufs[i]->bo[0]),
 		};
 		ret = ioctl(v4l2->fd, VIDIOC_QUERYBUF, &v4l2->v4l2bufs[i]);
-		v4l2->v4l2bufs[i].m.fd = omap_bo_dmabuf(bufs[i]->bo);
+		v4l2->v4l2bufs[i].m.fd = omap_bo_dmabuf(bufs[i]->bo[0]);
 		if (ret) {
 			ERROR("VIDIOC_QUERYBUF failed: %s (%d)", strerror(errno), ret);
 			return ret;
@@ -381,7 +387,9 @@ v4l2_qbuf(struct v4l2 *v4l2, struct buffer *buf)
 	struct v4l2_buffer *v4l2buf = NULL;
 	int i, ret, fd;
 
-	fd = omap_bo_dmabuf(buf->bo);
+	assert(buf->nbo == 1); /* TODO add multi-planar support */
+
+	fd = omap_bo_dmabuf(buf->bo[0]);
 
 	for (i = 0; i < v4l2->nbufs; i++) {
 		if (v4l2->v4l2bufs[i].m.fd == fd) {
@@ -423,9 +431,11 @@ v4l2_dqbuf(struct v4l2 *v4l2)
 
 	buf = v4l2->bufs[v4l2buf.index];
 
-	if (omap_bo_dmabuf(buf->bo) != v4l2buf.m.fd) {
+	assert(buf->nbo == 1); /* TODO add multi-planar support */
+
+	if (omap_bo_dmabuf(buf->bo[0]) != v4l2buf.m.fd) {
 		MSG("WARNING: camera gave us incorrect buffer: %d vs %d",
-				omap_bo_dmabuf(buf->bo), v4l2buf.m.fd);
+				omap_bo_dmabuf(buf->bo[0]), v4l2buf.m.fd);
 	}
 
 	return buf;

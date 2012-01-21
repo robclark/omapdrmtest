@@ -21,7 +21,7 @@
 #define NBUF 3
 #define CNT  500
 
-void
+static void
 usage(char *name)
 {
 	MSG("Usage: %s [OPTION]...", name);
@@ -36,7 +36,9 @@ main(int argc, char **argv)
 {
 	struct display *disp;
 	struct v4l2 *v4l2;
+	struct buffer *framebuf;
 	struct buffer **buffers;
+	uint32_t fourcc, width, height;
 	int ret, i;
 
 	MSG("Opening Display..");
@@ -47,7 +49,7 @@ main(int argc, char **argv)
 	}
 
 	MSG("Opening V4L2..");
-	v4l2 = v4l2_open(argc, argv);
+	v4l2 = v4l2_open(argc, argv, &fourcc, &width, &height);
 	if (!v4l2) {
 		usage(argv[0]);
 		return 1;
@@ -59,7 +61,9 @@ main(int argc, char **argv)
 		return 0;
 	}
 
-	buffers = disp_get_buffers(disp, NBUF);
+	framebuf = disp_get_fb(disp);
+
+	buffers = disp_get_vid_buffers(disp, NBUF, fourcc, width, height);
 	if (!buffers) {
 		return 1;
 	}
@@ -73,7 +77,8 @@ main(int argc, char **argv)
 	v4l2_streamon(v4l2);
 	for (i = 1; i < CNT; i++) {
 		v4l2_qbuf(v4l2, buffers[i % NBUF]);
-		ret = disp_post_buffer(disp, v4l2_dqbuf(v4l2));
+		ret = disp_post_vid_buffer(disp, v4l2_dqbuf(v4l2),
+				0, 0, width, height);
 		if (ret) {
 			return ret;
 		}

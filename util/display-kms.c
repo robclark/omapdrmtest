@@ -35,18 +35,21 @@ struct connector {
 	drmModeModeInfo *mode;
 	drmModeEncoder *encoder;
 	int crtc;
+	int pipe;
 };
 
 #define to_display_kms(x) container_of(x, struct display_kms, base)
 struct display_kms {
 	struct display base;
 
-	int connectors_count;
+	uint32_t connectors_count;
 	struct connector connector[10];
+	drmModePlane *ovr[10];
 
 	int scheduled_flips, completed_flips;
 	uint32_t bo_flags;
 	drmModeResPtr resources;
+	drmModePlaneRes *plane_resources;
 	struct buffer *current;
 };
 
@@ -56,13 +59,47 @@ struct buffer_kms {
 	uint32_t fb_id;
 };
 
+static struct omap_bo *
+alloc_bo(struct display *disp, uint32_t bpp, uint32_t width, uint32_t height,
+		uint32_t *bo_handle, uint32_t *pitch)
+{
+	struct display_kms *disp_kms = to_display_kms(disp);
+	struct omap_bo *bo;
+	uint32_t bo_flags = disp_kms->bo_flags;
+
+	if ((bo_flags & OMAP_BO_TILED) == OMAP_BO_TILED) {
+		bo_flags &= ~OMAP_BO_TILED;
+		if (bpp == 8) {
+			bo_flags |= OMAP_BO_TILED_8;
+		} else if (bpp == 16) {
+			bo_flags |= OMAP_BO_TILED_16;
+		} else if (bpp == 32) {
+			bo_flags |= OMAP_BO_TILED_32;
+		}
+	}
+
+	bo_flags |= OMAP_BO_WC;
+
+	if (bo_flags & OMAP_BO_TILED) {
+		bo = omap_bo_new_tiled(disp->dev, width, height, bo_flags);
+	} else {
+		bo = omap_bo_new(disp->dev, width * height * bpp / 8, bo_flags);
+	}
+
+	if (bo) {
+		*bo_handle = omap_bo_handle(bo);
+		*pitch = width * bpp / 8;
+	}
+
+	return bo;
+}
+
 static struct buffer *
 alloc_buffer(struct display *disp, uint32_t fourcc, uint32_t w, uint32_t h)
 {
-	struct display_kms *disp_kms = to_display_kms(disp);
 	struct buffer_kms *buf_kms;
 	struct buffer *buf;
-	uint32_t depth, bpp;
+	uint32_t bo_handles[4] = {0}, offsets[4] = {0};
 	int ret;
 
 	buf_kms = calloc(1, sizeof(*buf_kms));
@@ -76,43 +113,48 @@ alloc_buffer(struct display *disp, uint32_t fourcc, uint32_t w, uint32_t h)
 	buf->width = w;
 	buf->height = h;
 
+	buf->nbo = 1;
+
+	if (!fourcc)
+		fourcc = FOURCC('A','R','2','4');
+
 	switch(fourcc) {
-	case 0:
-		/* native fb format: */
-		buf->stride = 4 * buf->width;
-		depth = 24;
-		bpp = 32;
+	case FOURCC('A','R','2','4'):
+		buf->nbo = 1;
+		buf->bo[0] = alloc_bo(disp, 32, buf->width, buf->height,
+				&bo_handles[0], &buf->pitches[0]);
 		break;
-	/*TODO add YUV formats.. */
+	case FOURCC('U','Y','V','Y'):
+	case FOURCC('Y','U','Y','V'):
+		buf->nbo = 1;
+		buf->bo[0] = alloc_bo(disp, 16, buf->width, buf->height,
+				&bo_handles[0], &buf->pitches[0]);
+		break;
+	case FOURCC('N','V','1','2'):
+		buf->nbo = 2;
+		buf->bo[0] = alloc_bo(disp, 8, buf->width, buf->height,
+				&bo_handles[0], &buf->pitches[0]);
+		buf->bo[1] = alloc_bo(disp, 16, buf->width/2, buf->height/2,
+				&bo_handles[1], &buf->pitches[1]);
+		break;
+	case FOURCC('I','4','2','0'):
+		buf->nbo = 3;
+		buf->bo[0] = alloc_bo(disp, 8, buf->width, buf->height,
+				&bo_handles[0], &buf->pitches[0]);
+		buf->bo[1] = alloc_bo(disp, 8, buf->width/2, buf->height/2,
+				&bo_handles[1], &buf->pitches[1]);
+		buf->bo[2] = alloc_bo(disp, 8, buf->width/2, buf->height/2,
+				&bo_handles[2], &buf->pitches[2]);
+		break;
 	default:
 		ERROR("invalid format: 0x%08x", fourcc);
 		goto fail;
 	}
 
-	if (disp_kms->bo_flags & OMAP_BO_TILED) {
-		buf->bo = omap_bo_new_tiled(disp->dev, buf->width, buf->height,
-				disp_kms->bo_flags);
-	} else {
-		uint32_t sz = buf->stride * buf->height;
-		buf->bo = omap_bo_new(disp->dev, sz, disp_kms->bo_flags);
-	}
-
-	if (!buf->bo) {
-		ERROR("allocation failed");
-		goto fail;
-	}
-
-	if (!fourcc) {
-		ret = drmModeAddFB(disp->fd, buf->width, buf->height, depth, bpp,
-				buf->stride, omap_bo_handle(buf->bo), &buf_kms->fb_id);
-	} else {
-		// XXX use drmModeAddFB2()..
-		ERROR("TODO");
-		goto fail;
-	}
-
+	ret = drmModeAddFB2(disp->fd, buf->width, buf->height, fourcc,
+			bo_handles, buf->pitches, offsets, &buf_kms->fb_id, 0);
 	if (ret) {
-		ERROR("drmModeAddFB(2) failed: %s (%d)", strerror(errno), ret);
+		ERROR("drmModeAddFB2 failed: %s (%d)", strerror(errno), ret);
 		goto fail;
 	}
 
@@ -182,7 +224,8 @@ post_buffer(struct display *disp, struct buffer *buf)
 {
 	struct display_kms *disp_kms = to_display_kms(disp);
 	struct buffer_kms *buf_kms = to_buffer_kms(buf);
-	int i, ret, last_err = 0, x = 0;
+	int ret, last_err = 0, x = 0;
+	uint32_t i;
 
 	for (i = 0; i < disp_kms->connectors_count; i++) {
 		struct connector *connector = &disp_kms->connector[i];
@@ -251,6 +294,60 @@ post_buffer(struct display *disp, struct buffer *buf)
 	return last_err;
 }
 
+static int
+post_vid_buffer(struct display *disp, struct buffer *buf,
+		uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+	struct display_kms *disp_kms = to_display_kms(disp);
+	struct buffer_kms *buf_kms = to_buffer_kms(buf);
+	int ret = 0;
+	uint32_t i, j;
+
+	/* ensure we have the overlay setup: */
+	for (i = 0; i < disp_kms->connectors_count; i++) {
+		struct connector *connector = &disp_kms->connector[i];
+		uint32_t used_planes = 0;
+		drmModeModeInfo *mode = connector->mode;
+
+		if (! mode) {
+			continue;
+		}
+
+		if (! disp_kms->ovr[i]) {
+
+			for (j = 0; j < disp_kms->plane_resources->count_planes; j++) {
+				drmModePlane *ovr = drmModeGetPlane(disp->fd,
+						disp_kms->plane_resources->planes[j]);
+				if ((ovr->possible_crtcs & (1 << connector->pipe)) &&
+						!(used_planes & (1 << j))) {
+					disp_kms->ovr[i] = ovr;
+					used_planes |= (1 << j);
+					break;
+				}
+			}
+		}
+
+		if (! disp_kms->ovr[i]) {
+			MSG("Could not find plane for crtc %d", connector->crtc);
+			ret = -1;
+			/* carry on and see if we can find at least one usable plane */
+			continue;
+		}
+
+		ret = drmModeSetPlane(disp->fd, disp_kms->ovr[i]->plane_id,
+				connector->crtc, buf_kms->fb_id, 0,
+				/* make video fullscreen: */
+				0, 0, mode->hdisplay, mode->vdisplay,
+				/* source/cropping coordinates are given in Q16 */
+				x << 16, y << 16, w << 16, h << 16);
+		if (ret) {
+			ERROR("failed to enable plane %d: %s",
+					disp_kms->ovr[i]->plane_id, strerror(errno));
+		}
+	}
+
+	return ret;
+}
 
 static void
 connector_find_mode(struct display *disp, struct connector *c)
@@ -320,13 +417,21 @@ connector_find_mode(struct display *disp, struct connector *c)
 
 	if (c->crtc == -1)
 		c->crtc = c->encoder->crtc_id;
+
+	/* and figure out which crtc index it is: */
+	for (i = 0; i < disp_kms->resources->count_crtcs; i++) {
+		if (c->crtc == (int)disp_kms->resources->crtcs[i]) {
+			c->pipe = i;
+			break;
+		}
+	}
 }
 
 void
 disp_kms_usage(void)
 {
 	MSG("KMS Display Options:");
-	MSG("\t-t <tiled-mode>\t8, 16, or 32");
+	MSG("\t-t <tiled-mode>\t8, 16, 32, or auto");
 	MSG("\t-s <connector_id>:<mode>\tset a mode");
 	MSG("\t-s <connector_id>@<crtc_id>:<mode>\tset a mode");
 }
@@ -360,10 +465,17 @@ disp_kms_open(int argc, char **argv)
 	disp->get_buffers = get_buffers;
 	disp->get_vid_buffers = get_vid_buffers;
 	disp->post_buffer = post_buffer;
+	disp->post_vid_buffer = post_vid_buffer;
 
 	disp_kms->resources = drmModeGetResources(disp->fd);
 	if (!disp_kms->resources) {
 		ERROR("drmModeGetResources failed: %s", strerror(errno));
+		goto fail;
+	}
+
+	disp_kms->plane_resources = drmModeGetPlaneResources(disp->fd);
+	if (!disp_kms->plane_resources) {
+		ERROR("drmModeGetPlaneResources failed: %s", strerror(errno));
 		goto fail;
 	}
 
@@ -377,7 +489,9 @@ disp_kms_open(int argc, char **argv)
 		if (!strcmp("-t", argv[i])) {
 			int n;
 			argv[i++] = NULL;
-			if (sscanf(argv[i], "%d", &n) != 1) {
+			if (!strcmp(argv[i], "auto")) {
+				n = 0;
+			} else if (sscanf(argv[i], "%d", &n) != 1) {
 				ERROR("invalid arg: %s", argv[i]);
 				goto fail;
 			}
@@ -390,6 +504,8 @@ disp_kms_open(int argc, char **argv)
 				disp_kms->bo_flags |= OMAP_BO_TILED_16;
 			} else if (n == 32) {
 				disp_kms->bo_flags |= OMAP_BO_TILED_32;
+			} else if (n == 0) {
+				disp_kms->bo_flags |= OMAP_BO_TILED;
 			} else {
 				ERROR("invalid arg: %s", argv[i]);
 				goto fail;
@@ -419,7 +535,7 @@ disp_kms_open(int argc, char **argv)
 
 	disp->width = 0;
 	disp->height = 0;
-	for (i = 0; i < disp_kms->connectors_count; i++) {
+	for (i = 0; i < (int)disp_kms->connectors_count; i++) {
 		struct connector *c = &disp_kms->connector[i];
 		connector_find_mode(disp, c);
 		if (c->mode == NULL)

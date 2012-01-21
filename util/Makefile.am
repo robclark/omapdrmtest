@@ -19,12 +19,11 @@ noinst_LTLIBRARIES = libutil.la
 
 libutil_la_SOURCES = \
 	display-kms.c \
-	display-x11.c \
 	v4l2.c \
 	util.c
 
 if ENABLE_X11
-libutil_la_SOURCES += x11.c
+libutil_la_SOURCES += display-x11.c
 endif
 
 libutil_la_LIBADD = @DRM_LIBS@ @X11_LIBS@

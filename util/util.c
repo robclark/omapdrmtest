@@ -56,6 +56,18 @@ disp_open(int argc, char **argv)
 	return disp;
 }
 
+struct buffer *
+disp_get_fb(struct display *disp)
+{
+	struct buffer **bufs = disp_get_buffers(disp, 1);
+	if (!bufs)
+		return NULL;
+	fill(bufs[0], 42);
+	disp_post_buffer(disp, bufs[0]);
+	return bufs[0];
+}
+
+
 int
 check_args(int argc, char **argv)
 {
@@ -146,34 +158,42 @@ fill422(unsigned char *virtual, int n, int width, int height, int stride)
 
 
 void
-fill(struct buffer *buf, int i)
+fill(struct buffer *buf, int n)
 {
-	void *ptr;
+	int i;
 
-	omap_bo_cpu_prep(buf->bo, OMAP_GEM_WRITE);
-	ptr = omap_bo_map(buf->bo);
+	for (i = 0; i < buf->nbo; i++)
+		omap_bo_cpu_prep(buf->bo[i], OMAP_GEM_WRITE);
 
 	switch(buf->fourcc) {
 	case 0: {
-		fillRGB4(ptr, i, buf->width, buf->height, buf->stride);
+		assert(buf->nbo == 1);
+		fillRGB4(omap_bo_map(buf->bo[0]), n,
+				buf->width, buf->height, buf->pitches[0]);
 		break;
 	}
 	case FOURCC('Y','U','Y','V'): {
-		fill422(ptr, i, buf->width, buf->height, buf->stride);
+		assert(buf->nbo == 1);
+		fill422(omap_bo_map(buf->bo[0]), n,
+				buf->width, buf->height, buf->pitches[0]);
 		break;
 	}
 	case FOURCC('N','V','1','2'): {
-		unsigned char *y = ptr;
-		unsigned char *u = y + (buf->width * buf->stride);
-		unsigned char *v = u + 1;
-		fill420(y, u, v, 2, i, buf->width, buf->height, buf->stride);
+		unsigned char *y, *u, *v;
+		assert(buf->nbo == 2);
+		y = omap_bo_map(buf->bo[0]);
+		u = omap_bo_map(buf->bo[1]);
+		v = u + 1;
+		fill420(y, u, v, 2, n, buf->width, buf->height, buf->pitches[0]);
 		break;
 	}
 	case FOURCC('I','4','2','0'): {
-		unsigned char *y = ptr;
-		unsigned char *u = y + (buf->width * buf->stride);
-		unsigned char *v = u + (buf->width * buf->stride) / 4;
-		fill420(y, u, v, 1, i, buf->width, buf->height, buf->stride);
+		unsigned char *y, *u, *v;
+		assert(buf->nbo == 3);
+		y = omap_bo_map(buf->bo[0]);
+		u = omap_bo_map(buf->bo[1]);
+		v = omap_bo_map(buf->bo[2]);
+		fill420(y, u, v, 1, n, buf->width, buf->height, buf->pitches[0]);
 		break;
 	}
 	default:
@@ -181,5 +201,6 @@ fill(struct buffer *buf, int i)
 		break;
 	}
 
-	omap_bo_cpu_fini(buf->bo, OMAP_GEM_WRITE);
+	for (i = 0; i < buf->nbo; i++)
+		omap_bo_cpu_fini(buf->bo[i], OMAP_GEM_WRITE);
 }

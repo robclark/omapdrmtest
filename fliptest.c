@@ -21,7 +21,7 @@
 #define NBUF 3
 #define CNT  500
 
-void
+static void
 usage(char *name)
 {
 	MSG("Usage: %s [OPTION]...", name);

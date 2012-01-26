@@ -29,3 +29,4 @@ depcomp
 # test executables:
 dmabuftest
 fliptest
+viddec3test

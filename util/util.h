@@ -29,6 +29,9 @@
 #include <omap_drm.h>
 #include <omap_drmif.h>
 
+/* align x to next highest multiple of 2^n */
+#define ALIGN2(x,n)   (((x) + ((1 << (n)) - 1)) & ~((1 << (n)) - 1))
+
 typedef enum {
 	false = 0,
 	true = 1

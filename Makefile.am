@@ -18,11 +18,20 @@
 SUBDIRS = util
 bin_PROGRAMS = fliptest dmabuftest
 
-LDADD_COMMON = @DRM_LIBS@ @X11_LIBS@ util/libutil.la
-CFLAGS = @DRM_CFLAGS@ @X11_CFLAGS@ @WARN_CFLAGS@ -I$(top_srcdir)/util
+if ENABLE_DCE
+bin_PROGRAMS += viddec3test
+endif
+
+LDADD_COMMON = util/libutil.la @DRM_LIBS@ @X11_LIBS@ @DCE_LIBS@
+CFLAGS = @DRM_CFLAGS@ @X11_CFLAGS@ @DCE_CFLAGS@ @WARN_CFLAGS@ -I$(top_srcdir)/util
 
 fliptest_SOURCES = fliptest.c
-fliptest_LDADD = $(LDADD_COMMON) util/libutil.la
+fliptest_LDADD = $(LDADD_COMMON)
 
 dmabuftest_SOURCES = dmabuftest.c
-dmabuftest_LDADD = $(LDADD_COMMON) util/libutil.la
+dmabuftest_LDADD = $(LDADD_COMMON)
+
+if ENABLE_DCE
+viddec3test_SOURCES = viddec3test.c
+viddec3test_LDADD = $(LDADD_COMMON)
+endif

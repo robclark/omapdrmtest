@@ -36,7 +36,6 @@ PKG_CHECK_MODULES(DRM, libdrm libdrm_omap)
 
 # Check optional X11:
 PKG_CHECK_MODULES(X11, x11 libdri2, [HAVE_X11=yes], [HAVE_X11=no])
-
 if test "x$HAVE_X11" = "xyes"; then
 	AC_DEFINE(HAVE_X11, 1, [Have X11 support])
 else
@@ -44,6 +43,15 @@ else
 fi
 AM_CONDITIONAL(ENABLE_X11, [test "x$HAVE_X11" = xyes])
 
+# Check for libdce and libav..
+PKG_CHECK_MODULES(DCE, libdce libavformat libavutil, [HAVE_DCE=yes], [HAVE_DCE=no])
+if test "x$HAVE_DCE" = "xyes"; then
+	AC_DEFINE(HAVE_DCE, 1, [Have DCE support])
+	AC_MSG_NOTICE([Detected libdce and libavformat, building video codec tests])
+else
+	AC_MSG_WARN([No libdce and/or libavformat support detected, disabling video codec tests])
+fi
+AM_CONDITIONAL(ENABLE_DCE, [test "x$HAVE_DCE" = xyes])
 
 dnl ===========================================================================
 dnl check compiler flags

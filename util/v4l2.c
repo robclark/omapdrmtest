@@ -15,6 +15,10 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <linux/videodev2.h>
 #include <sys/types.h>
 #include <sys/stat.h>

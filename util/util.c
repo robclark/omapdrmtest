@@ -56,6 +56,49 @@ disp_open(int argc, char **argv)
 	return disp;
 }
 
+struct buffer **
+disp_get_vid_buffers(struct display *disp, uint32_t n,
+		uint32_t fourcc, uint32_t w, uint32_t h)
+{
+	struct buffer **buffers;
+	int i;
+
+	buffers = disp->get_vid_buffers(disp, n, fourcc, w, h);
+	if (buffers) {
+		/* if allocation succeeded, store in the unlocked
+		 * video buffer list
+		 */
+		list_init(&disp->unlocked);
+		for (i = 0; i < n; i++)
+			list_add(&buffers[i]->unlocked, &disp->unlocked);
+	}
+
+	return buffers;
+}
+
+struct buffer *
+disp_get_vid_buffer(struct display *disp)
+{
+	struct buffer *buf = NULL;
+	if (!list_is_empty(&disp->unlocked)) {
+		buf = list_last_entry(&disp->unlocked, struct buffer, unlocked);
+		list_del(&buf->unlocked);
+
+		/* barrier.. if we are using GPU blitting, we need to make sure
+		 * that the GPU is finished:
+		 */
+		omap_bo_cpu_prep(buf->bo[0], OMAP_GEM_WRITE);
+		omap_bo_cpu_fini(buf->bo[0], OMAP_GEM_WRITE);
+	}
+	return buf;
+}
+
+void
+disp_put_vid_buffer(struct display *disp, struct buffer *buf)
+{
+	list_add(&buf->unlocked, &disp->unlocked);
+}
+
 struct buffer *
 disp_get_fb(struct display *disp)
 {

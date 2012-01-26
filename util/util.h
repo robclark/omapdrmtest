@@ -29,6 +29,12 @@
 #include <omap_drm.h>
 #include <omap_drmif.h>
 
+typedef enum {
+	false = 0,
+	true = 1
+} bool;
+
+#include "list.h"
 
 /* Display Interface:
  *
@@ -44,12 +50,14 @@ struct buffer {
 	int nbo;
 	struct omap_bo *bo[4];
 	uint32_t pitches[4];
+	struct list unlocked;
 };
 
 struct display {
 	int fd;
 	uint32_t width, height;
 	struct omap_device *dev;
+	struct list unlocked;
 
 	struct buffer ** (*get_buffers)(struct display *disp, uint32_t n);
 	struct buffer ** (*get_vid_buffers)(struct display *disp,
@@ -75,12 +83,8 @@ disp_get_buffers(struct display *disp, uint32_t n)
 }
 
 /* Get video/overlay buffers (ie. can be YUV, scaled, etc) */
-static inline struct buffer **
-disp_get_vid_buffers(struct display *disp, uint32_t n,
-		uint32_t fourcc, uint32_t w, uint32_t h)
-{
-	return disp->get_vid_buffers(disp, n, fourcc, w, h);
-}
+struct buffer ** disp_get_vid_buffers(struct display *disp, uint32_t n,
+		uint32_t fourcc, uint32_t w, uint32_t h);
 
 /* flip to / post the specified buffer */
 static inline int
@@ -96,6 +100,11 @@ disp_post_vid_buffer(struct display *disp, struct buffer *buf,
 {
 	return disp->post_vid_buffer(disp, buf, x, y, w, h);
 }
+
+/* allocate a buffer from pool created by disp_get_vid_buffers() */
+struct buffer * disp_get_vid_buffer(struct display *disp);
+/* free to video buffer pool */
+void disp_put_vid_buffer(struct display *disp, struct buffer *buf);
 
 /* helper to setup the display for apps that just need video with
  * no flipchain on the GUI layer
@@ -147,9 +156,27 @@ void fill(struct buffer *buf, int i);
     (type *)((char *)(ptr) - (char *) &((type *)0)->member)
 #endif
 
-typedef enum {
-	false = 0,
-	true = 1
-} bool;
+#ifndef MIN
+#  define MIN(a,b)     (((a) < (b)) ? (a) : (b))
+#endif
+
+#ifndef MAX
+#  define MAX(a,b)     (((a) > (b)) ? (a) : (b))
+#endif
+
+/* align x to next highest multiple of 2^n */
+#define ALIGN2(x,n)   (((x) + ((1 << (n)) - 1)) & ~((1 << (n)) - 1))
+
+#include <sys/time.h>
+static inline long
+mark(long *last)
+{
+	struct timeval t;
+	gettimeofday(&t, NULL);
+	if (last) {
+		return t.tv_usec - *last;
+	}
+	return t.tv_usec;
+}
 
 #endif /* UTIL_H_ */

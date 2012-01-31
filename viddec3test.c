@@ -64,6 +64,7 @@ main(int argc, char **argv)
 	XDM2_BufDesc *outBufs;
 	VIDDEC3_InArgs *inArgs;
 	VIDDEC3_OutArgs *outArgs;
+	suseconds_t tdisp;
 
 	MSG("Opening Display..");
 	disp = disp_open(argc, argv);
@@ -199,10 +200,12 @@ main(int argc, char **argv)
 	outArgs = dce_alloc(sizeof(IVIDDEC3_OutArgs));
 	outArgs->size = sizeof(IVIDDEC3_OutArgs);
 
+	tdisp = mark(NULL);
+
 	while (inBufs->numBufs && outBufs->numBufs) {
 		struct buffer *buf;
 		int n;
-		suseconds_t t;
+		suseconds_t tproc;
 
 		buf = disp_get_vid_buffer(disp);
 		if (!buf) {
@@ -226,9 +229,9 @@ main(int argc, char **argv)
 		outBufs->descs[0].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[0]);
 		outBufs->descs[1].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[1]);
 
-		t = mark(NULL);
+		tproc = mark(NULL);
 		err = VIDDEC3_process(codec, inBufs, outBufs, inArgs, outArgs);
-		MSG("processed returned in: %ldus", (long int)mark(&t));
+		MSG("processed returned in: %ldus", (long int)mark(&tproc));
 		if (err) {
 			ERROR("process returned error: %d", err);
 			ERROR("extendedError: %08x", outArgs->extendedError);
@@ -248,6 +251,7 @@ main(int argc, char **argv)
 			disp_post_vid_buffer(disp, buf, r->topLeft.x, r->topLeft.y,
 					r->bottomRight.x - r->topLeft.x,
 					r->bottomRight.y - r->topLeft.y);
+			MSG("display in: %ldus", (long int)mark(&tdisp));
 		}
 
 		for (i = 0; outArgs->freeBufID[i]; i++) {

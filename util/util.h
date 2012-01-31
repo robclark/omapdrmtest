@@ -177,7 +177,9 @@ mark(long *last)
 	struct timeval t;
 	gettimeofday(&t, NULL);
 	if (last) {
-		return t.tv_usec - *last;
+		long delta = t.tv_usec - *last;
+		*last = t.tv_usec;
+		return delta;
 	}
 	return t.tv_usec;
 }

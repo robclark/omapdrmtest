@@ -330,6 +330,7 @@ v4l2_reqbufs(struct v4l2 *v4l2, struct buffer **bufs, uint32_t n)
 	}
 
 	v4l2->nbufs = reqbuf.count;
+	v4l2->bufs = bufs;
 	v4l2->v4l2bufs = calloc(v4l2->nbufs, sizeof(*v4l2->v4l2bufs));
 	if (!v4l2->v4l2bufs) {
 		ERROR("allocation failed");
@@ -409,6 +410,7 @@ v4l2_qbuf(struct v4l2 *v4l2, struct buffer *buf)
 	MSG("QBUF: idx=%d, fd=%d", v4l2buf->index, v4l2buf->m.fd);
 
 	ret = ioctl(v4l2->fd, VIDIOC_QBUF, v4l2buf);
+	v4l2buf->m.fd = omap_bo_dmabuf(buf->bo[0]);
 	if (ret) {
 		ERROR("VIDIOC_QBUF failed: %s (%d)", strerror(errno), ret);
 	}
@@ -431,16 +433,11 @@ v4l2_dqbuf(struct v4l2 *v4l2)
 		ERROR("VIDIOC_DQBUF failed: %s (%d)", strerror(errno), ret);
 	}
 
-	MSG("DQBUF: idx=%d, fd=%d", v4l2buf.index, v4l2buf.m.fd);
-
 	buf = v4l2->bufs[v4l2buf.index];
 
 	assert(buf->nbo == 1); /* TODO add multi-planar support */
 
-	if (omap_bo_dmabuf(buf->bo[0]) != v4l2buf.m.fd) {
-		MSG("WARNING: camera gave us incorrect buffer: %d vs %d",
-				omap_bo_dmabuf(buf->bo[0]), v4l2buf.m.fd);
-	}
+	MSG("DQBUF: idx=%d, fd=%d", v4l2buf.index, omap_bo_dmabuf(buf->bo[0]));
 
 	return buf;
 }

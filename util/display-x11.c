@@ -31,6 +31,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+static int global_fd = 0;
 
 #define to_display_x11(x) container_of(x, struct display_x11, base)
 struct display_x11 {
@@ -268,21 +269,27 @@ disp_x11_open(int argc, char **argv)
 
 	disp = &disp_x11->base;
 
-	disp->fd = open(device, O_RDWR);
-	if (disp->fd < 0) {
-		ERROR("could not open drm device: %s (%d)", strerror(errno), errno);
-		goto no_x11_free;
+	if (!global_fd) {
+		MSG("opening device: %s", device);
+		global_fd = open(device, O_RDWR);
+		if (global_fd < 0) {
+			ERROR("could not open drm device: %s (%d)",
+					strerror(errno), errno);
+			goto no_x11_free;
+		}
+
+		if (drmGetMagic(global_fd, &magic)) {
+			ERROR("drmGetMagic failed");
+			goto no_x11_free;
+		}
+
+		if (!DRI2Authenticate(dpy, root, magic)) {
+			ERROR("DRI2Authenticate failed");
+			goto no_x11_free;
+		}
 	}
 
-	if (drmGetMagic(disp->fd, &magic)) {
-		ERROR("drmGetMagic failed");
-		goto no_x11_free;
-	}
-
-	if (!DRI2Authenticate(dpy, root, magic)) {
-		ERROR("DRI2Authenticate failed");
-		goto no_x11_free;
-	}
+	disp->fd = global_fd;
 
 	disp->dev = omap_device_new(disp->fd);
 	if (!disp->dev) {

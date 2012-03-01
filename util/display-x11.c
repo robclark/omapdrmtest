@@ -110,7 +110,9 @@ get_vid_buffers(struct display *disp, uint32_t n,
 
 		for (j = 0; dri2bufs[i].names[j]; j++) {
 			buf->bo[j] = omap_bo_from_name(disp->dev, dri2bufs[i].names[j]);
+			buf->pitches[j] = dri2bufs[i].pitch[j];
 		}
+
 		buf->nbo = j;
 
 		bufs[i] = buf;

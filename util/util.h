@@ -167,6 +167,14 @@ void fill(struct buffer *buf, int i);
 #  define MAX(a,b)     (((a) > (b)) ? (a) : (b))
 #endif
 
+#ifndef PAGE_SHIFT
+#  define PAGE_SHIFT 12
+#endif
+
+#ifndef PAGE_SIZE
+#  define PAGE_SIZE (1 << PAGE_SHIFT)
+#endif
+
 /* align x to next highest multiple of 2^n */
 #define ALIGN2(x,n)   (((x) + ((1 << (n)) - 1)) & ~((1 << (n)) - 1))
 

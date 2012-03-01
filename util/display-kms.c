@@ -93,6 +93,8 @@ alloc_bo(struct display *disp, uint32_t bpp, uint32_t width, uint32_t height,
 	if (bo) {
 		*bo_handle = omap_bo_handle(bo);
 		*pitch = width * bpp / 8;
+		if (bo_flags & OMAP_BO_TILED)
+			*pitch = ALIGN2(*pitch, PAGE_SHIFT);
 	}
 
 	return bo;

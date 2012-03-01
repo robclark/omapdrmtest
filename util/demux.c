@@ -134,7 +134,6 @@ int demux_read(struct demux *demux, char *input, int size)
 
 			if (demux->bsf) {
 				int ret;
-				MSG("%p %d bytes", pk.data, pk.size);
 				ret = av_bitstream_filter_filter(demux->bsf, demux->cc,
 						NULL, &buf, &bufsize, pk.data, pk.size, 0);
 				if (ret < 0) {

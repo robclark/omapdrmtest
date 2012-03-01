@@ -33,28 +33,11 @@
 /* Padding for height as per Codec requirement (for h264)*/
 #define PADY  24
 
-static void
-usage(char *name)
-{
-	MSG("Usage: %s [OPTIONS] INFILE", name);
-	MSG("Test of viddec3 decoder.");
-	MSG("");
-	disp_usage();
-}
-
-int
-main(int argc, char **argv)
-{
+struct decoder {
 	struct display *disp;
 	struct demux *demux;
 	struct buffer *framebuf;
-	char *infile = NULL;
-	char *input = NULL;
-	struct omap_bo *input_bo = NULL;
-	int ret = 1, i, input_sz, num_buffers;
-	int width, height, padded_width, padded_height;
-	Engine_Error ec;
-	XDAS_Int32 err;
+
 	Engine_Handle engine;
 	VIDDEC3_Handle codec;
 	VIDDEC3_Params *params;
@@ -64,14 +47,60 @@ main(int argc, char **argv)
 	XDM2_BufDesc *outBufs;
 	VIDDEC3_InArgs *inArgs;
 	VIDDEC3_OutArgs *outArgs;
+
+	char *input;
+	struct omap_bo *input_bo;
+	int input_sz;
+
 	suseconds_t tdisp;
 
-	MSG("Opening Display..");
-	disp = disp_open(argc, argv);
-	if (!disp) {
-		usage(argv[0]);
-		return 1;
-	}
+};
+
+static void
+usage(char *name)
+{
+	MSG("Usage: %s [OPTIONS] INFILE", name);
+	MSG("Test of viddec3 decoder.");
+	MSG("");
+	disp_usage();
+}
+
+static void
+decoder_close(struct decoder *decoder)
+{
+	if (decoder->codec)          VIDDEC3_delete(decoder->codec);
+	if (decoder->engine)         Engine_close(decoder->engine);
+	if (decoder->params)         dce_free(decoder->params);
+	if (decoder->dynParams)      dce_free(decoder->dynParams);
+	if (decoder->status)         dce_free(decoder->status);
+	if (decoder->inBufs)         free(decoder->inBufs);
+	if (decoder->outBufs)        free(decoder->outBufs);
+	if (decoder->inArgs)         dce_free(decoder->inArgs);
+	if (decoder->outArgs)        dce_free(decoder->outArgs);
+	if (decoder->input_bo)       omap_bo_del(decoder->input_bo);
+	if (decoder->demux)          demux_deinit(decoder->demux);
+
+	free(decoder);
+}
+
+static struct decoder *
+decoder_open(int argc, char **argv)
+{
+	struct decoder *decoder;
+	char *infile = NULL;
+	int i, num_buffers;
+	int width, height, padded_width, padded_height;
+	Engine_Error ec;
+	XDAS_Int32 err;
+
+	decoder = calloc(1, sizeof(*decoder));
+	if (!decoder)
+		return NULL;
+
+	MSG("%p: Opening Display..", decoder);
+	decoder->disp = disp_open(argc, argv);
+	if (!decoder->disp)
+		goto usage;
 
 	/* loop thru args, find input file.. */
 	for (i = 1; i < argc; i++) {
@@ -89,18 +118,17 @@ main(int argc, char **argv)
 		break;
 	}
 
-	if (check_args(argc, argv) || !infile) {
-		ERROR("invalid args");
+	if (check_args(argc, argv) || !infile)
 		goto usage;
+
+	MSG("%p: Opening Demuxer..", decoder);
+	decoder->demux = demux_init(infile, &width, &height);
+	if (!decoder->demux) {
+		ERROR("%p: could not open demuxer", decoder);
+		goto fail;
 	}
 
-	MSG("Opening Demuxer..");
-	demux = demux_init(infile, &width, &height);
-	if (!demux) {
-		goto usage;
-	}
-
-	MSG("infile=%s, width=%d, height=%d", infile, width, height);
+	MSG("%p: infile=%s, width=%d, height=%d", decoder, infile, width, height);
 
 	/* calculate output buffer parameters: */
 	width  = ALIGN2 (width, 4);        /* round up to macroblocks */
@@ -109,182 +137,218 @@ main(int argc, char **argv)
 	padded_height = height + 4*PADY;
 	num_buffers   = MIN(16, 32768 / ((width/16) * (height/16))) + 3;
 
-	MSG("padded_width=%d, padded_height=%d, num_buffers=%d",
-			padded_width, padded_height, num_buffers);
+	MSG("%p: padded_width=%d, padded_height=%d, num_buffers=%d",
+			decoder, padded_width, padded_height, num_buffers);
 
-	input_sz = width * height;
-	input_bo = omap_bo_new(disp->dev, input_sz, OMAP_BO_WC);
-	input = omap_bo_map(input_bo);
+	decoder->input_sz = width * height;
+	decoder->input_bo = omap_bo_new(decoder->disp->dev,
+			decoder->input_sz, OMAP_BO_WC);
+	decoder->input = omap_bo_map(decoder->input_bo);
 
-	framebuf = disp_get_fb(disp);
+	decoder->framebuf = disp_get_fb(decoder->disp);
 
-	if (! disp_get_vid_buffers(disp, num_buffers, FOURCC_STR("NV12"),
-			padded_width, padded_height)) {
-		goto out;
+	if (! disp_get_vid_buffers(decoder->disp, num_buffers,
+			FOURCC_STR("NV12"), padded_width, padded_height)) {
+		ERROR("%p: could not allocate buffers", decoder);
+		goto fail;
 	}
 
-	MSG("Opening Engine..");
-	dce_set_fd(disp->fd);
-	engine = Engine_open("ivahd_vidsvr", NULL, &ec);
-	if (!engine) {
-		ERROR("fail");
-		goto out;
+	MSG("%p: Opening Engine..", decoder);
+	dce_set_fd(decoder->disp->fd);
+	decoder->engine = Engine_open("ivahd_vidsvr", NULL, &ec);
+	if (!decoder->engine) {
+		ERROR("%p: could not open engine", decoder);
+		goto fail;
 	}
 
-	params = dce_alloc(sizeof(IVIDDEC3_Params));
-	params->size = sizeof(IVIDDEC3_Params);
+	decoder->params = dce_alloc(sizeof(IVIDDEC3_Params));
+	decoder->params->size = sizeof(IVIDDEC3_Params);
 
-	params->maxWidth         = width;
-	params->maxHeight        = height;
-	params->maxFrameRate     = 30000;
-	params->maxBitRate       = 10000000;
-	params->dataEndianness   = XDM_BYTE;
-	params->forceChromaFormat= XDM_YUV_420SP;
-	params->operatingMode    = IVIDEO_DECODE_ONLY;
-	params->displayDelay     = IVIDDEC3_DISPLAY_DELAY_AUTO;
-	params->displayBufsMode  = IVIDDEC3_DISPLAYBUFS_EMBEDDED;
-	params->inputDataMode    = IVIDEO_ENTIREFRAME;
-	params->metadataType[0]  = IVIDEO_METADATAPLANE_NONE;
-	params->metadataType[1]  = IVIDEO_METADATAPLANE_NONE;
-	params->metadataType[2]  = IVIDEO_METADATAPLANE_NONE;
-	params->numInputDataUnits= 0;
-	params->outputDataMode   = IVIDEO_ENTIREFRAME;
-	params->numOutputDataUnits = 0;
-	params->errorInfoMode    = IVIDEO_ERRORINFO_OFF;
+	decoder->params->maxWidth         = width;
+	decoder->params->maxHeight        = height;
+	decoder->params->maxFrameRate     = 30000;
+	decoder->params->maxBitRate       = 10000000;
+	decoder->params->dataEndianness   = XDM_BYTE;
+	decoder->params->forceChromaFormat= XDM_YUV_420SP;
+	decoder->params->operatingMode    = IVIDEO_DECODE_ONLY;
+	decoder->params->displayDelay     = IVIDDEC3_DISPLAY_DELAY_AUTO;
+	decoder->params->displayBufsMode  = IVIDDEC3_DISPLAYBUFS_EMBEDDED;
+MSG("displayBufsMode: %d", decoder->params->displayBufsMode);
+	decoder->params->inputDataMode    = IVIDEO_ENTIREFRAME;
+	decoder->params->metadataType[0]  = IVIDEO_METADATAPLANE_NONE;
+	decoder->params->metadataType[1]  = IVIDEO_METADATAPLANE_NONE;
+	decoder->params->metadataType[2]  = IVIDEO_METADATAPLANE_NONE;
+	decoder->params->numInputDataUnits= 0;
+	decoder->params->outputDataMode   = IVIDEO_ENTIREFRAME;
+	decoder->params->numOutputDataUnits = 0;
+	decoder->params->errorInfoMode    = IVIDEO_ERRORINFO_OFF;
 
-	codec = VIDDEC3_create(engine, "ivahd_h264dec", params);
-	if (!codec) {
-		ERROR("fail");
-		goto out;
+	decoder->codec = VIDDEC3_create(decoder->engine,
+			"ivahd_h264dec", decoder->params);
+	if (!decoder->codec) {
+		ERROR("%p: could not create codec", decoder);
+		goto fail;
 	}
 
-	dynParams = dce_alloc(sizeof(IVIDDEC3_DynamicParams));
-	dynParams->size = sizeof(IVIDDEC3_DynamicParams);
+	decoder->dynParams = dce_alloc(sizeof(IVIDDEC3_DynamicParams));
+	decoder->dynParams->size = sizeof(IVIDDEC3_DynamicParams);
 
-	dynParams->decodeHeader  = XDM_DECODE_AU;
+	decoder->dynParams->decodeHeader  = XDM_DECODE_AU;
 
 	/*Not Supported: Set default*/
-	dynParams->displayWidth  = 0;
-	dynParams->frameSkipMode = IVIDEO_NO_SKIP;
-	dynParams->newFrameFlag  = XDAS_TRUE;
+	decoder->dynParams->displayWidth  = 0;
+	decoder->dynParams->frameSkipMode = IVIDEO_NO_SKIP;
+	decoder->dynParams->newFrameFlag  = XDAS_TRUE;
 
-	status = dce_alloc(sizeof(IVIDDEC3_Status));
-	status->size = sizeof(IVIDDEC3_Status);
+	decoder->status = dce_alloc(sizeof(IVIDDEC3_Status));
+	decoder->status->size = sizeof(IVIDDEC3_Status);
 
-	err = VIDDEC3_control(codec, XDM_SETPARAMS, dynParams, status);
+	err = VIDDEC3_control(decoder->codec, XDM_SETPARAMS,
+			decoder->dynParams, decoder->status);
 	if (err) {
-		ERROR("fail: %d", err);
-		goto out;
+		ERROR("%p: fail: %d", decoder, err);
+		goto fail;
 	}
 
 	/* not entirely sure why we need to call this here.. just copying omx.. */
-	err = VIDDEC3_control(codec, XDM_GETBUFINFO, dynParams, status);
+	err = VIDDEC3_control(decoder->codec, XDM_GETBUFINFO,
+			decoder->dynParams, decoder->status);
 	if (err) {
-		ERROR("fail: %d", err);
-		goto out;
+		ERROR("%p: fail: %d", decoder, err);
+		goto fail;
 	}
 
-	inBufs = malloc(sizeof(XDM2_BufDesc));
-	inBufs->numBufs = 1;
-	inBufs->descs[0].buf = (XDAS_Int8 *)omap_bo_handle(input_bo);
-	inBufs->descs[0].memType = XDM_MEMTYPE_BO;
+	decoder->inBufs = malloc(sizeof(XDM2_BufDesc));
+	decoder->inBufs->numBufs = 1;
+	decoder->inBufs->descs[0].buf =
+			(XDAS_Int8 *)omap_bo_handle(decoder->input_bo);
+	decoder->inBufs->descs[0].memType = XDM_MEMTYPE_BO;
 
-	outBufs = malloc(sizeof(XDM2_BufDesc));
-	outBufs->numBufs = 2;
-	outBufs->descs[0].memType = XDM_MEMTYPE_BO;
-	outBufs->descs[1].memType = XDM_MEMTYPE_BO;
+	decoder->outBufs = malloc(sizeof(XDM2_BufDesc));
+	decoder->outBufs->numBufs = 2;
+	decoder->outBufs->descs[0].memType = XDM_MEMTYPE_BO;
+	decoder->outBufs->descs[1].memType = XDM_MEMTYPE_BO;
 
-	inArgs = dce_alloc(sizeof(IVIDDEC3_InArgs));
-	inArgs->size = sizeof(IVIDDEC3_InArgs);
+	decoder->inArgs = dce_alloc(sizeof(IVIDDEC3_InArgs));
+	decoder->inArgs->size = sizeof(IVIDDEC3_InArgs);
 
-	outArgs = dce_alloc(sizeof(IVIDDEC3_OutArgs));
-	outArgs->size = sizeof(IVIDDEC3_OutArgs);
+	decoder->outArgs = dce_alloc(sizeof(IVIDDEC3_OutArgs));
+	decoder->outArgs->size = sizeof(IVIDDEC3_OutArgs);
 
-	tdisp = mark(NULL);
+	decoder->tdisp = mark(NULL);
 
-	while (inBufs->numBufs && outBufs->numBufs) {
-		struct buffer *buf;
-		int n;
-		suseconds_t tproc;
-
-		buf = disp_get_vid_buffer(disp);
-		if (!buf) {
-			ERROR("fail: out of buffers");
-			goto shutdown;
-		}
-
-		n = demux_read(demux, input, input_sz);
-		if (n) {
-			inBufs->descs[0].bufSize.bytes = n;
-			inArgs->numBytes = n;
-			MSG("push: %d bytes (%p)", n, buf);
-		} else {
-			/* end of input.. do we need to flush? */
-			MSG("end of input");
-			inBufs->numBufs = 0;
-			inArgs->inputID = 0;
-		}
-
-		inArgs->inputID = (XDAS_Int32)buf;
-		outBufs->descs[0].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[0]);
-		outBufs->descs[1].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[1]);
-
-		tproc = mark(NULL);
-		err = VIDDEC3_process(codec, inBufs, outBufs, inArgs, outArgs);
-		MSG("processed returned in: %ldus", (long int)mark(&tproc));
-		if (err) {
-			ERROR("process returned error: %d", err);
-			ERROR("extendedError: %08x", outArgs->extendedError);
-			if (XDM_ISFATALERROR(outArgs->extendedError))
-				goto shutdown;
-		}
-
-		for (i = 0; outArgs->outputID[i]; i++) {
-			/* calculate offset to region of interest */
-			XDM_Rect *r = &(outArgs->displayBufs.bufDesc[0].activeFrameRegion);
-
-			/* get the output buffer and write it to file */
-			buf = (struct buffer *)outArgs->outputID[i];
-			MSG("post buffer: %p %d,%d %d,%d", buf,
-					r->topLeft.x, r->topLeft.y,
-					r->bottomRight.x, r->bottomRight.y);
-			disp_post_vid_buffer(disp, buf, r->topLeft.x, r->topLeft.y,
-					r->bottomRight.x - r->topLeft.x,
-					r->bottomRight.y - r->topLeft.y);
-			MSG("display in: %ldus", (long int)mark(&tdisp));
-		}
-
-		for (i = 0; outArgs->freeBufID[i]; i++) {
-			buf = (struct buffer *)outArgs->freeBufID[i];
-			disp_put_vid_buffer(disp, buf);
-		}
-
-		if (outArgs->outBufsInUseFlag) {
-			MSG("TODO... outBufsInUseFlag"); // XXX
-		}
-	}
-
-	MSG("Ok!");
-	ret = 0;
-
-shutdown:
-	VIDDEC3_delete(codec);
-
-out:
-	if (engine)         Engine_close(engine);
-	if (params)         dce_free(params);
-	if (dynParams)      dce_free(dynParams);
-	if (status)         dce_free(status);
-	if (inBufs)         free(inBufs);
-	if (outBufs)        free(outBufs);
-	if (inArgs)         dce_free(inArgs);
-	if (outArgs)        dce_free(outArgs);
-	if (input_bo)       omap_bo_del(input_bo);
-	if (demux)          demux_deinit(demux);
-
-	return ret;
+	return decoder;
 
 usage:
 	usage(argv[0]);
-	return ret;
+fail:
+	if (decoder)
+		decoder_close(decoder);
+	return NULL;
+}
+
+static int
+decoder_process(struct decoder *decoder)
+{
+	XDM2_BufDesc *inBufs = decoder->inBufs;
+	XDM2_BufDesc *outBufs = decoder->outBufs;
+	VIDDEC3_InArgs *inArgs = decoder->inArgs;
+	VIDDEC3_OutArgs *outArgs = decoder->outArgs;
+	XDAS_Int32 err;
+	struct buffer *buf;
+	int i, n;
+	suseconds_t tproc;
+
+	buf = disp_get_vid_buffer(decoder->disp);
+	if (!buf) {
+		ERROR("%p: fail: out of buffers", decoder);
+		return -1;
+	}
+
+	n = demux_read(decoder->demux, decoder->input, decoder->input_sz);
+	if (n) {
+		inBufs->descs[0].bufSize.bytes = n;
+		inArgs->numBytes = n;
+		MSG("%p: push: %d bytes (%p)", decoder, n, buf);
+	} else {
+		/* end of input.. do we need to flush? */
+		MSG("%p: end of input", decoder);
+		inBufs->numBufs = 0;
+		inArgs->inputID = 0;
+	}
+
+	inArgs->inputID = (XDAS_Int32)buf;
+	outBufs->descs[0].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[0]);
+	outBufs->descs[1].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[1]);
+
+	tproc = mark(NULL);
+	err = VIDDEC3_process(decoder->codec, inBufs, outBufs, inArgs, outArgs);
+	MSG("%p: processed returned in: %ldus", decoder, (long int)mark(&tproc));
+	if (err) {
+		ERROR("%p: process returned error: %d", decoder, err);
+		ERROR("%p: extendedError: %08x", decoder, outArgs->extendedError);
+		if (XDM_ISFATALERROR(outArgs->extendedError))
+			return -1;
+	}
+
+	for (i = 0; outArgs->outputID[i]; i++) {
+		/* calculate offset to region of interest */
+		XDM_Rect *r = &(outArgs->displayBufs.bufDesc[0].activeFrameRegion);
+
+		/* get the output buffer and write it to file */
+		buf = (struct buffer *)outArgs->outputID[i];
+		MSG("%p: post buffer: %p %d,%d %d,%d", decoder, buf,
+				r->topLeft.x, r->topLeft.y,
+				r->bottomRight.x, r->bottomRight.y);
+		disp_post_vid_buffer(decoder->disp, buf,
+				r->topLeft.x, r->topLeft.y,
+				r->bottomRight.x - r->topLeft.x,
+				r->bottomRight.y - r->topLeft.y);
+		MSG("%p: display in: %ldus", decoder, (long int)mark(&decoder->tdisp));
+	}
+
+	for (i = 0; outArgs->freeBufID[i]; i++) {
+		buf = (struct buffer *)outArgs->freeBufID[i];
+		disp_put_vid_buffer(decoder->disp, buf);
+	}
+
+	if (outArgs->outBufsInUseFlag) {
+		MSG("%p: TODO... outBufsInUseFlag", decoder); // XXX
+	}
+
+	return (inBufs->numBufs > 0) ? 0 : -1;
+}
+
+int
+main(int argc, char **argv)
+{
+	struct decoder *decoders[8] = {};
+	int i, n, first = 0, ndecoders = 0;
+
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--")) {
+			argv[first] = argv[0];
+			decoders[ndecoders++] = decoder_open(i - first, &argv[first]);
+			first = i;
+		}
+	}
+
+	argv[first] = argv[0];
+	decoders[ndecoders++] = decoder_open(i - first, &argv[first]);
+
+	do {
+		for (i = 0, n = 0; i < ndecoders; i++) {
+			if (decoders[i]) {
+				int ret = decoder_process(decoders[i]);
+				if (ret) {
+					decoder_close(decoders[i]);
+					decoders[i] = NULL;
+					continue;
+				}
+				n++;
+			}
+		}
+	} while(n > 0);
+
+	return 0;
 }

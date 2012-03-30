@@ -34,6 +34,17 @@ AC_PROG_LIBTOOL
 # Obtain compiler/linker options for depedencies
 PKG_CHECK_MODULES(DRM, libdrm libdrm_omap)
 
+# Check for kernel headers
+kversion=`uname -r`
+if test -r "/usr/src/linux-headers-$kversion/include/linux/videodev2.h"; then
+    headers_cflags="$headers_cflags -I/usr/src/linux-headers-$kversion/include"
+
+    AC_SUBST(CFLAGS, [$headers_cflags])
+    AC_MSG_NOTICE([$kversion provides videodev2.h])
+else
+    AC_MSG_NOTICE([Could not find /usr/src/linux-headers-$kversion/include/linux/videodev2.h])
+fi
+
 # Check for v4l2 dmabuf support:
 AC_CHECK_MEMBER([struct v4l2_buffer.m.fd],
 	[HAVE_V4L2_DMABUF=yes],
@@ -41,6 +52,7 @@ AC_CHECK_MEMBER([struct v4l2_buffer.m.fd],
 	[[#include <linux/videodev2.h>]])
 if test "x$HAVE_V4L2_DMABUF" = "xyes"; then
 	AC_DEFINE(HAVE_V4L2_DMABUF, 1, [Have V4L2 DMABUF support])
+	AC_MSG_NOTICE([V4L2 DMABUF support detected])
 else
 	AC_MSG_WARN([No V4L2 DMABUF support detected, disabling V4L2 DMABUF tests])
 fi

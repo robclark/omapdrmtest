@@ -36,13 +36,19 @@ PKG_CHECK_MODULES(DRM, libdrm libdrm_omap)
 
 # Check for kernel headers
 kversion=`uname -r`
-if test -r "/usr/src/linux-headers-$kversion/include/linux/videodev2.h"; then
-    headers_cflags="$headers_cflags -I/usr/src/linux-headers-$kversion/include"
+AC_ARG_WITH([kernel-source],
+            [AS_HELP_STRING([--with-kernel-source],
+              [specify pavth to linux kernel source])],
+	    [kernel_source="$with_kernel_source"],
+	    [kernel_source="/usr/src/linux-headers-$kversion"])
+
+if test -r "$kernel_source/include/linux/videodev2.h"; then
+    headers_cflags="$headers_cflags -I$kernel_source/include"
 
     AC_SUBST(CFLAGS, [$headers_cflags])
     AC_MSG_NOTICE([$kversion provides videodev2.h])
 else
-    AC_MSG_NOTICE([Could not find /usr/src/linux-headers-$kversion/include/linux/videodev2.h])
+    AC_MSG_NOTICE([Could not find $kernel_source/include/linux/videodev2.h])
 fi
 
 # Check for v4l2 dmabuf support:

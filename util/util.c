@@ -65,7 +65,7 @@ disp_get_vid_buffers(struct display *disp, uint32_t n,
 		uint32_t fourcc, uint32_t w, uint32_t h)
 {
 	struct buffer **buffers;
-	int i;
+	unsigned int i;
 
 	buffers = disp->get_vid_buffers(disp, n, fourcc, w, h);
 	if (buffers) {

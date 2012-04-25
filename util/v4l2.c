@@ -27,12 +27,32 @@
 
 #include "util.h"
 
+#define MAX_PLANES 2
+
 struct v4l2 {
 	int fd;
 	int nbufs;
 	struct v4l2_buffer *v4l2bufs;
 	struct buffer **bufs;
 };
+
+static bool
+check_fd(struct v4l2_buffer *v4l2buf, struct buffer *buf)
+{
+	int i;
+	for (i = 0; i < buf->nbo; i++)
+		if (omap_bo_dmabuf(buf->bo[i]) != v4l2buf->m.planes[i].m.fd)
+			return false;
+	return true;
+}
+
+static void
+set_fd(struct v4l2_buffer *v4l2buf, struct buffer *buf)
+{
+	int i;
+	for (i = 0; i < buf->nbo; i++)
+		v4l2buf->m.planes[i].m.fd = omap_bo_dmabuf(buf->bo[i]);
+}
 
 void
 v4l2_usage(void)
@@ -225,14 +245,14 @@ v4l2_open(int argc, char **argv, uint32_t *fourcc,
 		uint32_t *width, uint32_t *height)
 {
 	struct v4l2_format format = {
-			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE,
 	};
 	struct v4l2 *v4l2;
 	int i, ret;
 	bool mcf = false;
 
 	v4l2 = calloc(1, sizeof(*v4l2));
-	v4l2->fd = open("/dev/video0", O_RDWR);
+	v4l2->fd = open("/dev/video3", O_RDWR);
 
 	ret = ioctl(v4l2->fd, VIDIOC_G_FMT, &format);
 	if (ret < 0) {
@@ -303,7 +323,7 @@ int
 v4l2_reqbufs(struct v4l2 *v4l2, struct buffer **bufs, uint32_t n)
 {
 	struct v4l2_requestbuffers reqbuf = {
-			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE,
 			.memory = V4L2_MEMORY_DMABUF,
 			.count = n,
 	};
@@ -323,7 +343,7 @@ v4l2_reqbufs(struct v4l2 *v4l2, struct buffer **bufs, uint32_t n)
 	}
 
 	if ((reqbuf.count != n) ||
-			(reqbuf.type != V4L2_BUF_TYPE_VIDEO_CAPTURE) ||
+			(reqbuf.type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) ||
 			(reqbuf.memory != V4L2_MEMORY_DMABUF)) {
 		ERROR("unsupported..");
 		return -1;
@@ -338,15 +358,18 @@ v4l2_reqbufs(struct v4l2 *v4l2, struct buffer **bufs, uint32_t n)
 	}
 
 	for (i = 0; i < reqbuf.count; i++) {
-		assert(bufs[i]->nbo == 1); /* TODO add multi-planar support */
 		v4l2->v4l2bufs[i] = (struct v4l2_buffer){
-			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
-					.memory = V4L2_MEMORY_DMABUF,
-					.index = i,
-					.m.fd = omap_bo_dmabuf(bufs[i]->bo[0]),
+			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE,
+			.memory = V4L2_MEMORY_DMABUF,
+			.index = i,
+			.m = {
+				.planes = calloc(bufs[i]->nbo, sizeof(struct v4l2_plane)),
+			},
+			.length = bufs[i]->nbo,
 		};
+		set_fd(&v4l2->v4l2bufs[i], bufs[i]);
 		ret = ioctl(v4l2->fd, VIDIOC_QUERYBUF, &v4l2->v4l2bufs[i]);
-		v4l2->v4l2bufs[i].m.fd = omap_bo_dmabuf(bufs[i]->bo[0]);
+		set_fd(&v4l2->v4l2bufs[i], bufs[i]);
 		if (ret) {
 			ERROR("VIDIOC_QUERYBUF failed: %s (%d)", strerror(errno), ret);
 			return ret;
@@ -359,7 +382,7 @@ v4l2_reqbufs(struct v4l2 *v4l2, struct buffer **bufs, uint32_t n)
 int
 v4l2_streamon(struct v4l2 *v4l2)
 {
-	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	int ret;
 
     ret = ioctl(v4l2->fd, VIDIOC_STREAMON, &type);
@@ -374,7 +397,7 @@ v4l2_streamon(struct v4l2 *v4l2)
 int
 v4l2_streamoff(struct v4l2 *v4l2)
 {
-	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	int ret;
 
     ret = ioctl(v4l2->fd, VIDIOC_STREAMOFF, &type);
@@ -390,15 +413,12 @@ int
 v4l2_qbuf(struct v4l2 *v4l2, struct buffer *buf)
 {
 	struct v4l2_buffer *v4l2buf = NULL;
-	int i, ret, fd;
-
-	assert(buf->nbo == 1); /* TODO add multi-planar support */
-
-	fd = omap_bo_dmabuf(buf->bo[0]);
+	int i, ret;
 
 	for (i = 0; i < v4l2->nbufs; i++) {
-		if (v4l2->v4l2bufs[i].m.fd == fd) {
+		if (check_fd(&v4l2->v4l2bufs[i], buf)) {
 			v4l2buf = &v4l2->v4l2bufs[i];
+			break;
 		}
 	}
 
@@ -407,10 +427,10 @@ v4l2_qbuf(struct v4l2 *v4l2, struct buffer *buf)
 		return -1;
 	}
 
-	MSG("QBUF: idx=%d, fd=%d", v4l2buf->index, v4l2buf->m.fd);
+	MSG("QBUF: idx=%d, fd=%d", v4l2buf->index, omap_bo_dmabuf(buf->bo[0]));
 
 	ret = ioctl(v4l2->fd, VIDIOC_QBUF, v4l2buf);
-	v4l2buf->m.fd = omap_bo_dmabuf(buf->bo[0]);
+	set_fd(v4l2buf, buf);
 	if (ret) {
 		ERROR("VIDIOC_QBUF failed: %s (%d)", strerror(errno), ret);
 	}
@@ -422,9 +442,14 @@ struct buffer *
 v4l2_dqbuf(struct v4l2 *v4l2)
 {
 	struct buffer *buf;
+	struct v4l2_plane planes[MAX_PLANES];
 	struct v4l2_buffer v4l2buf = {
-			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE,
 			.memory = V4L2_MEMORY_DMABUF,
+			.m = {
+				.planes = planes,
+			},
+			.length = v4l2->bufs[0]->nbo,
 	};
 	int ret;
 
@@ -434,8 +459,6 @@ v4l2_dqbuf(struct v4l2 *v4l2)
 	}
 
 	buf = v4l2->bufs[v4l2buf.index];
-
-	assert(buf->nbo == 1); /* TODO add multi-planar support */
 
 	MSG("DQBUF: idx=%d, fd=%d", v4l2buf.index, omap_bo_dmabuf(buf->bo[0]));
 

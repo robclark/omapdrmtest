@@ -82,7 +82,7 @@ alloc_bo(struct display *disp, uint32_t bpp, uint32_t width, uint32_t height,
 		}
 	}
 
-	bo_flags |= OMAP_BO_WC;
+	bo_flags |= OMAP_BO_CACHED;
 
 	if (bo_flags & OMAP_BO_TILED) {
 		bo = omap_bo_new_tiled(disp->dev, width, height, bo_flags);

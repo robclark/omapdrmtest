@@ -45,7 +45,7 @@ AC_ARG_WITH([kernel-source],
 if test -r "$kernel_source/include/linux/videodev2.h"; then
     headers_cflags="$headers_cflags -I$kernel_source/include"
 
-    AC_SUBST(CFLAGS, [$headers_cflags])
+    AC_SUBST(LIN_CFLAGS, [$headers_cflags])
     AC_MSG_NOTICE([$kversion provides videodev2.h])
 else
     AC_MSG_NOTICE([Could not find $kernel_source/include/linux/videodev2.h])

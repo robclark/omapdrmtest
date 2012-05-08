@@ -34,4 +34,4 @@ libutil_la_SOURCES += demux.c
 endif
 
 libutil_la_LIBADD = @DRM_LIBS@ @X11_LIBS@ @DCE_LIBS@
-libutil_la_CFLAGS = @DRM_CFLAGS@ @X11_CFLAGS@ @DCE_CFLAGS@ @WARN_CFLAGS@
+libutil_la_CFLAGS = @LIN_CFLAGS@ @DRM_CFLAGS@ @X11_CFLAGS@ @DCE_CFLAGS@ @WARN_CFLAGS@

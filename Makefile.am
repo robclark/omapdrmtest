@@ -27,7 +27,7 @@ bin_PROGRAMS += viddec3test
 endif
 
 LDADD_COMMON = util/libutil.la @DRM_LIBS@ @X11_LIBS@ @DCE_LIBS@
-CFLAGS = @DRM_CFLAGS@ @X11_CFLAGS@ @DCE_CFLAGS@ @WARN_CFLAGS@ -I$(top_srcdir)/util
+AM_CFLAGS = @LIN_CFLAGS@ @DRM_CFLAGS@ @X11_CFLAGS@ @DCE_CFLAGS@ @WARN_CFLAGS@ -I$(top_srcdir)/util
 
 fliptest_SOURCES = fliptest.c
 fliptest_LDADD = $(LDADD_COMMON)

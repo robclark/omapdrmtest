@@ -38,7 +38,7 @@ PKG_CHECK_MODULES(DRM, libdrm libdrm_omap)
 kversion=`uname -r`
 AC_ARG_WITH([kernel-source],
             [AS_HELP_STRING([--with-kernel-source],
-              [specify pavth to linux kernel source])],
+              [specify path to linux kernel source])],
 	    [kernel_source="$with_kernel_source"],
 	    [kernel_source="/usr/src/linux-headers-$kversion"])
 
@@ -65,7 +65,8 @@ fi
 AM_CONDITIONAL(ENABLE_V4L2_DMABUF, [test "x$HAVE_V4L2_DMABUF" = xyes])
 
 # Check optional X11:
-PKG_CHECK_MODULES(X11, x11 dri2, [HAVE_X11=yes], [HAVE_X11=no])
+AC_ARG_ENABLE([x11], AS_HELP_STRING([--disable-x11], [disable x11/dri2video support]))
+AS_IF([test "x$enable_x11" != "xno"], [PKG_CHECK_MODULES(X11, x11 dri2, [HAVE_X11=yes])])
 if test "x$HAVE_X11" = "xyes"; then
 	AC_DEFINE(HAVE_X11, 1, [Have X11 support])
 else

@@ -218,13 +218,14 @@ MSG("displayBufsMode: %d", decoder->params->displayBufsMode);
 		goto fail;
 	}
 
-	decoder->inBufs = malloc(sizeof(XDM2_BufDesc));
+	decoder->inBufs = calloc(1, sizeof(XDM2_BufDesc));
 	decoder->inBufs->numBufs = 1;
 	decoder->inBufs->descs[0].buf =
 			(XDAS_Int8 *)omap_bo_handle(decoder->input_bo);
+	decoder->inBufs->descs[0].bufSize.bytes = omap_bo_size(decoder->input_bo);
 	decoder->inBufs->descs[0].memType = XDM_MEMTYPE_BO;
 
-	decoder->outBufs = malloc(sizeof(XDM2_BufDesc));
+	decoder->outBufs = calloc(1, sizeof(XDM2_BufDesc));
 	decoder->outBufs->numBufs = 2;
 	decoder->outBufs->descs[0].memType = XDM_MEMTYPE_BO;
 	decoder->outBufs->descs[1].memType = XDM_MEMTYPE_BO;
@@ -279,7 +280,9 @@ decoder_process(struct decoder *decoder)
 
 	inArgs->inputID = (XDAS_Int32)buf;
 	outBufs->descs[0].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[0]);
+	outBufs->descs[0].bufSize.bytes = omap_bo_size(buf->bo[0]);
 	outBufs->descs[1].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[1]);
+	outBufs->descs[1].bufSize.bytes = omap_bo_size(buf->bo[1]);
 
 	tproc = mark(NULL);
 	err = VIDDEC3_process(decoder->codec, inBufs, outBufs, inArgs, outArgs);

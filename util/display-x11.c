@@ -375,3 +375,9 @@ no_x11:
 	ERROR("unimplemented");
 	return NULL;
 }
+
+void disp_x11_close(struct display *disp)
+{
+	struct display_x11 *disp_x11 = to_display_x11(disp);
+	XCloseDisplay(disp_x11->dpy);
+}

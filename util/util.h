@@ -78,6 +78,9 @@ void disp_usage(void);
  */
 struct display * disp_open(int argc, char **argv);
 
+/* Close display */
+void disp_close(struct display *disp);
+
 /* Get normal RGB/UI buffers (ie. not scaled, not YUV) */
 static inline struct buffer **
 disp_get_buffers(struct display *disp, uint32_t n)

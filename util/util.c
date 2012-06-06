@@ -29,6 +29,7 @@ struct display * disp_kms_open(int argc, char **argv);
 #ifdef HAVE_X11
 void disp_x11_usage(void);
 struct display * disp_x11_open(int argc, char **argv);
+void disp_x11_close(struct display *disp);
 #endif
 
 void
@@ -58,6 +59,13 @@ disp_open(int argc, char **argv)
 	}
 
 	return disp;
+}
+
+void disp_close(struct display *disp)
+{
+#ifdef HAVE_X11
+	disp_x11_close(disp);
+#endif
 }
 
 struct buffer **

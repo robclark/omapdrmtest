@@ -79,6 +79,7 @@ decoder_close(struct decoder *decoder)
 	if (decoder->outArgs)        dce_free(decoder->outArgs);
 	if (decoder->input_bo)       omap_bo_del(decoder->input_bo);
 	if (decoder->demux)          demux_deinit(decoder->demux);
+	if (decoder->disp)           disp_close(decoder->disp);
 
 	free(decoder);
 }

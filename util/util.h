@@ -189,6 +189,13 @@ mark(long *last)
 	gettimeofday(&t, NULL);
 	if (last) {
 		long delta = t.tv_usec - *last;
+
+		/* Handle the case, where the seconds have changed.
+		 * TODO: keep the whole timeval struct, to be able to cope with
+		 * more than one second deltas? */
+		if (t.tv_usec < *last)
+			delta += 1000000;
+
 		*last = t.tv_usec;
 		return delta;
 	}

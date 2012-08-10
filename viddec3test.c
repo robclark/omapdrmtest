@@ -62,6 +62,9 @@ usage(char *name)
 	MSG("Usage: %s [OPTIONS] INFILE", name);
 	MSG("Test of viddec3 decoder.");
 	MSG("");
+	MSG("viddec3test options:");
+	MSG("\t-h, --help: Print this help and exit.");
+	MSG("");
 	disp_usage();
 }
 
@@ -330,7 +333,11 @@ main(int argc, char **argv)
 	int i, n, first = 0, ndecoders = 0;
 
 	for (i = 1; i < argc; i++) {
-		if (!strcmp(argv[i], "--")) {
+		if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+			usage(argv[0]);
+			exit(0);
+
+		} else if (!strcmp(argv[i], "--")) {
 			argv[first] = argv[0];
 			decoders[ndecoders++] = decoder_open(i - first, &argv[first]);
 			first = i;

@@ -56,11 +56,20 @@ struct buffer {
 	struct list unlocked;
 };
 
+/* State variables, used to maintain the playback rate. */
+struct rate_control {
+	int fps;		/* When > zero, we maintain playback rate. */
+	long last_frame_mark;	/* The time when the last frame was displayed,
+				 * as returned by the mark() function. */
+	int usecs_to_sleep;	/* Number of useconds we have slep last frame. */
+};
+
 struct display {
 	int fd;
 	uint32_t width, height;
 	struct omap_device *dev;
 	struct list unlocked;
+	struct rate_control rtctl;
 
 	struct buffer ** (*get_buffers)(struct display *disp, uint32_t n);
 	struct buffer ** (*get_vid_buffers)(struct display *disp,
@@ -93,19 +102,13 @@ struct buffer ** disp_get_vid_buffers(struct display *disp, uint32_t n,
 		uint32_t fourcc, uint32_t w, uint32_t h);
 
 /* flip to / post the specified buffer */
-static inline int
-disp_post_buffer(struct display *disp, struct buffer *buf)
-{
-	return disp->post_buffer(disp, buf);
-}
+int
+disp_post_buffer(struct display *disp, struct buffer *buf);
 
 /* flip to / post the specified video buffer */
-static inline int
+int
 disp_post_vid_buffer(struct display *disp, struct buffer *buf,
-		uint32_t x, uint32_t y, uint32_t w, uint32_t h)
-{
-	return disp->post_vid_buffer(disp, buf, x, y, w, h);
-}
+		uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 
 /* allocate a buffer from pool created by disp_get_vid_buffers() */
 struct buffer * disp_get_vid_buffer(struct display *disp);

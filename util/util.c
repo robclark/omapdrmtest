@@ -35,6 +35,9 @@ void disp_x11_close(struct display *disp);
 void
 disp_usage(void)
 {
+	MSG("Generic Display options:");
+	MSG("\t--fps <fps>\tforce playback rate (0 means \"do not force\")");
+
 #ifdef HAVE_X11
 	disp_x11_usage();
 #endif
@@ -45,11 +48,29 @@ struct display *
 disp_open(int argc, char **argv)
 {
 	struct display *disp;
+	int i, fps = 0;
+
+	for (i = 1; i < argc; i++) {
+		if (!argv[i]) {
+			continue;
+		}
+		if (!strcmp("--fps", argv[i])) {
+			argv[i++] = NULL;
+
+			if (sscanf(argv[i], "%d", &fps) != 1) {
+				ERROR("invalid arg: %s", argv[i]);
+				return NULL;
+			}
+
+			MSG("Forcing playback rate at %d fps.", fps);
+			argv[i] = NULL;
+		}
+	}
 
 #ifdef HAVE_X11
 	disp = disp_x11_open(argc, argv);
 	if (disp)
-		return disp;
+		goto out;
 #endif
 
 	disp = disp_kms_open(argc, argv);
@@ -58,6 +79,8 @@ disp_open(int argc, char **argv)
 		ERROR("unable to create display");
 	}
 
+out:
+	disp->rtctl.fps = fps;
 	return disp;
 }
 
@@ -109,6 +132,56 @@ void
 disp_put_vid_buffer(struct display *disp, struct buffer *buf)
 {
 	list_add(&buf->unlocked, &disp->unlocked);
+}
+
+/* Maintain playback rate if fps > 0. */
+static void maintain_playback_rate(struct rate_control *p)
+{
+	long usecs_since_last_frame;
+	int usecs_between_frames, usecs_to_sleep;
+
+	if (p->fps <= 0)
+		return;
+
+	usecs_between_frames = 1000000 / p->fps;
+	usecs_since_last_frame = mark(&p->last_frame_mark);
+	MSG("fps: %.02f", 1000000.0 / usecs_since_last_frame);
+	usecs_to_sleep = usecs_between_frames - usecs_since_last_frame + p->usecs_to_sleep;
+
+	if (usecs_to_sleep < 0)
+		usecs_to_sleep = 0;
+
+	/* mark() has a limitation that >1s time deltas will make the whole
+	 * loop diverge. Workaround that limitation by clamping our desired sleep time
+	 * to a maximum. TODO: Remove when mark() is in better shape. */
+	if (usecs_to_sleep >= 1000000)
+		usecs_to_sleep = 999999;
+
+	/* We filter a bit our rate adaptation, to avoid being too "choppy".
+	 * Adjust the "alpha" value as needed. */
+	p->usecs_to_sleep = ((67 * p->usecs_to_sleep) + (33 * usecs_to_sleep)) / 100;
+
+	if (p->usecs_to_sleep >= 1) {
+		MSG("sleeping %dus", p->usecs_to_sleep);
+		usleep(p->usecs_to_sleep);
+	}
+}
+
+/* flip to / post the specified buffer */
+int
+disp_post_buffer(struct display *disp, struct buffer *buf)
+{
+	maintain_playback_rate(&disp->rtctl);
+	return disp->post_buffer(disp, buf);
+}
+
+/* flip to / post the specified video buffer */
+int
+disp_post_vid_buffer(struct display *disp, struct buffer *buf,
+		uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+	maintain_playback_rate(&disp->rtctl);
+	return disp->post_vid_buffer(disp, buf, x, y, w, h);
 }
 
 struct buffer *

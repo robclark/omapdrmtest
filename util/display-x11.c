@@ -144,7 +144,7 @@ post_vid_buffer(struct display *disp, struct buffer *buf,
 
 	DRI2SwapBuffersVid(disp_x11->dpy, disp_x11->win, 0, 0, 0, &count,
 			buf_x11->dri2buf->attachment, &b);
-	MSG("DRI2SwapBuffersVid[%u]: count=%llu",
+	DBG("DRI2SwapBuffersVid[%u]: count=%llu",
 			buf_x11->dri2buf->attachment, count);
 
 	return 0;
@@ -186,7 +186,7 @@ static Bool WireToEvent(Display *dpy, XExtDisplayInfo *info,
 	case DRI2_BufferSwapComplete:
 	{
 //		xDRI2BufferSwapComplete *awire = (xDRI2BufferSwapComplete *)wire;
-		MSG("BufferSwapComplete");
+		DBG("BufferSwapComplete");
 		return True;
 	}
 	default:

@@ -147,6 +147,7 @@ struct buffer * v4l2_dqbuf(struct v4l2 *v4l2);
 
 /* Other utilities..
  */
+extern int debug;
 
 int check_args(int argc, char **argv);
 
@@ -154,6 +155,10 @@ void fill(struct buffer *buf, int i);
 
 #define FOURCC(a, b, c, d) ((uint32_t)(uint8_t)(a) | ((uint32_t)(uint8_t)(b) << 8) | ((uint32_t)(uint8_t)(c) << 16) | ((uint32_t)(uint8_t)(d) << 24 ))
 #define FOURCC_STR(str)    FOURCC(str[0], str[1], str[2], str[3])
+
+/* Dynamic debug. */
+#define DBG(fmt, ...) \
+		do { if (debug) fprintf(stderr, fmt "\n", ##__VA_ARGS__); } while (0)
 
 #define MSG(fmt, ...) \
 		do { fprintf(stderr, fmt "\n", ##__VA_ARGS__); } while (0)

@@ -23,6 +23,9 @@
 
 #include <drm.h>
 
+/* Dynamic debug. */
+int debug = 0;
+
 void disp_kms_usage(void);
 struct display * disp_kms_open(int argc, char **argv);
 
@@ -36,6 +39,7 @@ void
 disp_usage(void)
 {
 	MSG("Generic Display options:");
+	MSG("\t--debug\tTurn on debug messages.");
 	MSG("\t--fps <fps>\tforce playback rate (0 means \"do not force\")");
 	MSG("\t--no-post\tDo not post buffers (disables screen updates) for benchmarking. Rate can still be controlled.");
 
@@ -68,7 +72,12 @@ disp_open(int argc, char **argv)
 		if (!argv[i]) {
 			continue;
 		}
-		if (!strcmp("--fps", argv[i])) {
+		if (!strcmp("--debug", argv[i])) {
+			debug = 1;
+			MSG("Enabling dynamic debug.");
+			argv[i] = NULL;
+
+		} else if (!strcmp("--fps", argv[i])) {
 			argv[i++] = NULL;
 
 			if (sscanf(argv[i], "%d", &fps) != 1) {
@@ -172,7 +181,7 @@ static void maintain_playback_rate(struct rate_control *p)
 
 	usecs_between_frames = 1000000 / p->fps;
 	usecs_since_last_frame = mark(&p->last_frame_mark);
-	MSG("fps: %.02f", 1000000.0 / usecs_since_last_frame);
+	DBG("fps: %.02f", 1000000.0 / usecs_since_last_frame);
 	usecs_to_sleep = usecs_between_frames - usecs_since_last_frame + p->usecs_to_sleep;
 
 	if (usecs_to_sleep < 0)
@@ -189,7 +198,7 @@ static void maintain_playback_rate(struct rate_control *p)
 	p->usecs_to_sleep = ((67 * p->usecs_to_sleep) + (33 * usecs_to_sleep)) / 100;
 
 	if (p->usecs_to_sleep >= 1) {
-		MSG("sleeping %dus", p->usecs_to_sleep);
+		DBG("sleeping %dus", p->usecs_to_sleep);
 		usleep(p->usecs_to_sleep);
 	}
 }

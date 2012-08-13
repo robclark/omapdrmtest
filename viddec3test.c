@@ -274,7 +274,7 @@ decoder_process(struct decoder *decoder)
 	if (n) {
 		inBufs->descs[0].bufSize.bytes = n;
 		inArgs->numBytes = n;
-		MSG("%p: push: %d bytes (%p)", decoder, n, buf);
+		DBG("%p: push: %d bytes (%p)", decoder, n, buf);
 	} else {
 		/* end of input.. do we need to flush? */
 		MSG("%p: end of input", decoder);
@@ -290,7 +290,7 @@ decoder_process(struct decoder *decoder)
 
 	tproc = mark(NULL);
 	err = VIDDEC3_process(decoder->codec, inBufs, outBufs, inArgs, outArgs);
-	MSG("%p: processed returned in: %ldus", decoder, (long int)mark(&tproc));
+	DBG("%p: processed returned in: %ldus", decoder, (long int)mark(&tproc));
 	if (err) {
 		ERROR("%p: process returned error: %d", decoder, err);
 		ERROR("%p: extendedError: %08x", decoder, outArgs->extendedError);
@@ -304,14 +304,14 @@ decoder_process(struct decoder *decoder)
 
 		/* get the output buffer and write it to file */
 		buf = (struct buffer *)outArgs->outputID[i];
-		MSG("%p: post buffer: %p %d,%d %d,%d", decoder, buf,
+		DBG("%p: post buffer: %p %d,%d %d,%d", decoder, buf,
 				r->topLeft.x, r->topLeft.y,
 				r->bottomRight.x, r->bottomRight.y);
 		disp_post_vid_buffer(decoder->disp, buf,
 				r->topLeft.x, r->topLeft.y,
 				r->bottomRight.x - r->topLeft.x,
 				r->bottomRight.y - r->topLeft.y);
-		MSG("%p: display in: %ldus", decoder, (long int)mark(&decoder->tdisp));
+		DBG("%p: display in: %ldus", decoder, (long int)mark(&decoder->tdisp));
 	}
 
 	for (i = 0; outArgs->freeBufID[i]; i++) {

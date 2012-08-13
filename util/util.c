@@ -37,6 +37,7 @@ disp_usage(void)
 {
 	MSG("Generic Display options:");
 	MSG("\t--fps <fps>\tforce playback rate (0 means \"do not force\")");
+	MSG("\t--no-post\tDo not post buffers (disables screen updates) for benchmarking. Rate can still be controlled.");
 
 #ifdef HAVE_X11
 	disp_x11_usage();
@@ -44,11 +45,24 @@ disp_usage(void)
 	disp_kms_usage();
 }
 
+static int
+empty_post_buffer(struct display *disp, struct buffer *buf)
+{
+	return 0;
+}
+
+static int
+empty_post_vid_buffer(struct display *disp, struct buffer *buf,
+			uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+	return 0;
+}
+
 struct display *
 disp_open(int argc, char **argv)
 {
 	struct display *disp;
-	int i, fps = 0;
+	int i, fps = 0, no_post = 0;
 
 	for (i = 1; i < argc; i++) {
 		if (!argv[i]) {
@@ -63,6 +77,11 @@ disp_open(int argc, char **argv)
 			}
 
 			MSG("Forcing playback rate at %d fps.", fps);
+			argv[i] = NULL;
+
+		} else if (!strcmp("--no-post", argv[i])) {
+			MSG("Disabling buffers posting.");
+			no_post = 1;
 			argv[i] = NULL;
 		}
 	}
@@ -81,6 +100,14 @@ disp_open(int argc, char **argv)
 
 out:
 	disp->rtctl.fps = fps;
+
+	/* If buffer posting is disabled from command line, override post
+	 * functions with empty ones. */
+	if (no_post) {
+		disp->post_buffer = empty_post_buffer;
+		disp->post_vid_buffer = empty_post_vid_buffer;
+	}
+
 	return disp;
 }
 

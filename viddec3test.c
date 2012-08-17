@@ -56,6 +56,9 @@ struct decoder {
 
 };
 
+/* When true, do not actually call VIDDEC3_process. For benchmarking. */
+static int no_process = 0;
+
 static void
 usage(char *name)
 {
@@ -64,6 +67,7 @@ usage(char *name)
 	MSG("");
 	MSG("viddec3test options:");
 	MSG("\t-h, --help: Print this help and exit.");
+	MSG("\t--no-process\tDo not actually call VIDDEC3_process method. For benchmarking.");
 	MSG("");
 	disp_usage();
 }
@@ -259,10 +263,8 @@ decoder_process(struct decoder *decoder)
 	XDM2_BufDesc *outBufs = decoder->outBufs;
 	VIDDEC3_InArgs *inArgs = decoder->inArgs;
 	VIDDEC3_OutArgs *outArgs = decoder->outArgs;
-	XDAS_Int32 err;
 	struct buffer *buf;
 	int i, n;
-	suseconds_t tproc;
 
 	buf = disp_get_vid_buffer(decoder->disp);
 	if (!buf) {
@@ -288,14 +290,27 @@ decoder_process(struct decoder *decoder)
 	outBufs->descs[1].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[1]);
 	outBufs->descs[1].bufSize.bytes = omap_bo_size(buf->bo[1]);
 
-	tproc = mark(NULL);
-	err = VIDDEC3_process(decoder->codec, inBufs, outBufs, inArgs, outArgs);
-	DBG("%p: processed returned in: %ldus", decoder, (long int)mark(&tproc));
-	if (err) {
-		ERROR("%p: process returned error: %d", decoder, err);
-		ERROR("%p: extendedError: %08x", decoder, outArgs->extendedError);
-		if (XDM_ISFATALERROR(outArgs->extendedError))
-			return -1;
+	if (no_process) {
+		/* Do not process. This is for benchmarking. We need to "fake"
+		 * the outArgs. */
+		outArgs->outputID[0] = buf;
+		outArgs->outputID[1] = NULL;
+		outArgs->freeBufID[0] = buf;
+		outArgs->freeBufID[1] = NULL;
+		outArgs->outBufsInUseFlag = 0;
+
+	} else {
+		XDAS_Int32 err;
+		suseconds_t tproc;
+		tproc = mark(NULL);
+		err = VIDDEC3_process(decoder->codec, inBufs, outBufs, inArgs, outArgs);
+		DBG("%p: processed returned in: %ldus", decoder, (long int)mark(&tproc));
+		if (err) {
+			ERROR("%p: process returned error: %d", decoder, err);
+			ERROR("%p: extendedError: %08x", decoder, outArgs->extendedError);
+			if (XDM_ISFATALERROR(outArgs->extendedError))
+				return -1;
+		}
 	}
 
 	for (i = 0; outArgs->outputID[i]; i++) {
@@ -336,6 +351,10 @@ main(int argc, char **argv)
 		if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
 			usage(argv[0]);
 			exit(0);
+
+		} if (!strcmp(argv[i], "--no-process")) {
+			no_process = 1;
+			argv[i] = NULL;
 
 		} else if (!strcmp(argv[i], "--")) {
 			argv[first] = argv[0];

@@ -163,6 +163,11 @@ int demux_read(struct demux *demux, char *input, int size)
 	return 0;
 }
 
+int demux_rewind(struct demux *demux)
+{
+	return av_seek_frame(demux->afc, demux->st->index, 0, AVSEEK_FLAG_FRAME);
+}
+
 void demux_deinit(struct demux *demux)
 {
 	av_close_input_file(demux->afc);

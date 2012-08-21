@@ -59,6 +59,9 @@ struct decoder {
 /* When true, do not actually call VIDDEC3_process. For benchmarking. */
 static int no_process = 0;
 
+/* When true, loop at end of playback. */
+static int loop = 0;
+
 static void
 usage(char *name)
 {
@@ -67,6 +70,7 @@ usage(char *name)
 	MSG("");
 	MSG("viddec3test options:");
 	MSG("\t-h, --help: Print this help and exit.");
+	MSG("\t--loop\tRestart playback at end of stream.");
 	MSG("\t--no-process\tDo not actually call VIDDEC3_process method. For benchmarking.");
 	MSG("");
 	disp_usage();
@@ -272,16 +276,33 @@ decoder_process(struct decoder *decoder)
 		return -1;
 	}
 
-	n = demux_read(decoder->demux, decoder->input, decoder->input_sz);
-	if (n) {
-		inBufs->descs[0].bufSize.bytes = n;
-		inArgs->numBytes = n;
-		DBG("%p: push: %d bytes (%p)", decoder, n, buf);
-	} else {
-		/* end of input.. do we need to flush? */
-		MSG("%p: end of input", decoder);
-		inBufs->numBufs = 0;
-		inArgs->inputID = 0;
+	/* demux; in loop mode, we can do two tries at the end of the stream. */
+	for (i = 0; i < 2; i++) {
+		n = demux_read(decoder->demux, decoder->input, decoder->input_sz);
+		if (n) {
+			inBufs->descs[0].bufSize.bytes = n;
+			inArgs->numBytes = n;
+			DBG("%p: push: %d bytes (%p)", decoder, n, buf);
+		} else {
+			/* end of input.. do we need to flush? */
+			MSG("%p: end of input", decoder);
+
+			/* In loop mode: rewind and retry once. */
+			if (loop && i == 0) {
+				int err = demux_rewind(decoder->demux);
+				if (err < 0) {
+					ERROR("%p: demux_rewind returned error: %d", decoder, err);
+					return -1;
+				}
+				MSG("%p: rewound.", decoder);
+				continue;
+			}
+
+			/* Not in loop or second try: end. */
+			inBufs->numBufs = 0;
+			inArgs->inputID = 0;
+		}
+		break;
 	}
 
 	inArgs->inputID = (XDAS_Int32)buf;
@@ -352,7 +373,11 @@ main(int argc, char **argv)
 			usage(argv[0]);
 			exit(0);
 
-		} if (!strcmp(argv[i], "--no-process")) {
+		} else if (!strcmp(argv[i], "--loop")) {
+			loop = 1;
+			argv[i] = NULL;
+
+		} else if (!strcmp(argv[i], "--no-process")) {
 			no_process = 1;
 			argv[i] = NULL;
 

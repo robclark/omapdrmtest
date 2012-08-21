@@ -37,6 +37,7 @@ struct demux;
 
 struct demux * demux_init(const char * filename, int *width, int *height);
 int demux_read(struct demux *demux, char *input, int size);
+int demux_rewind(struct demux *demux);
 void demux_deinit(struct demux *demux);
 
 #endif /* __DEMUX_H__ */

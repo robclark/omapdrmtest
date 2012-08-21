@@ -87,6 +87,7 @@ main(int argc, char **argv)
 	v4l2_dqbuf(v4l2);
 
 	MSG("Ok!");
+	disp_close(disp);
 
 	return ret;
 }

@@ -65,6 +65,7 @@ main(int argc, char **argv)
 	}
 
 	MSG("Ok!");
+	disp_close(disp);
 
 	return 0;
 }

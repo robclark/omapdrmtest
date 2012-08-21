@@ -56,11 +56,20 @@ struct buffer {
 	struct list unlocked;
 };
 
+/* State variables, used to maintain the playback rate. */
+struct rate_control {
+	int fps;		/* When > zero, we maintain playback rate. */
+	long last_frame_mark;	/* The time when the last frame was displayed,
+				 * as returned by the mark() function. */
+	int usecs_to_sleep;	/* Number of useconds we have slep last frame. */
+};
+
 struct display {
 	int fd;
 	uint32_t width, height;
 	struct omap_device *dev;
 	struct list unlocked;
+	struct rate_control rtctl;
 
 	struct buffer ** (*get_buffers)(struct display *disp, uint32_t n);
 	struct buffer ** (*get_vid_buffers)(struct display *disp,
@@ -78,6 +87,9 @@ void disp_usage(void);
  */
 struct display * disp_open(int argc, char **argv);
 
+/* Close display */
+void disp_close(struct display *disp);
+
 /* Get normal RGB/UI buffers (ie. not scaled, not YUV) */
 static inline struct buffer **
 disp_get_buffers(struct display *disp, uint32_t n)
@@ -90,19 +102,13 @@ struct buffer ** disp_get_vid_buffers(struct display *disp, uint32_t n,
 		uint32_t fourcc, uint32_t w, uint32_t h);
 
 /* flip to / post the specified buffer */
-static inline int
-disp_post_buffer(struct display *disp, struct buffer *buf)
-{
-	return disp->post_buffer(disp, buf);
-}
+int
+disp_post_buffer(struct display *disp, struct buffer *buf);
 
 /* flip to / post the specified video buffer */
-static inline int
+int
 disp_post_vid_buffer(struct display *disp, struct buffer *buf,
-		uint32_t x, uint32_t y, uint32_t w, uint32_t h)
-{
-	return disp->post_vid_buffer(disp, buf, x, y, w, h);
-}
+		uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 
 /* allocate a buffer from pool created by disp_get_vid_buffers() */
 struct buffer * disp_get_vid_buffer(struct display *disp);
@@ -141,6 +147,7 @@ struct buffer * v4l2_dqbuf(struct v4l2 *v4l2);
 
 /* Other utilities..
  */
+extern int debug;
 
 int check_args(int argc, char **argv);
 
@@ -148,6 +155,10 @@ void fill(struct buffer *buf, int i);
 
 #define FOURCC(a, b, c, d) ((uint32_t)(uint8_t)(a) | ((uint32_t)(uint8_t)(b) << 8) | ((uint32_t)(uint8_t)(c) << 16) | ((uint32_t)(uint8_t)(d) << 24 ))
 #define FOURCC_STR(str)    FOURCC(str[0], str[1], str[2], str[3])
+
+/* Dynamic debug. */
+#define DBG(fmt, ...) \
+		do { if (debug) fprintf(stderr, fmt "\n", ##__VA_ARGS__); } while (0)
 
 #define MSG(fmt, ...) \
 		do { fprintf(stderr, fmt "\n", ##__VA_ARGS__); } while (0)
@@ -186,6 +197,13 @@ mark(long *last)
 	gettimeofday(&t, NULL);
 	if (last) {
 		long delta = t.tv_usec - *last;
+
+		/* Handle the case, where the seconds have changed.
+		 * TODO: keep the whole timeval struct, to be able to cope with
+		 * more than one second deltas? */
+		if (t.tv_usec < *last)
+			delta += 1000000;
+
 		*last = t.tv_usec;
 		return delta;
 	}

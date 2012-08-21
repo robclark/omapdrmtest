@@ -56,11 +56,22 @@ struct decoder {
 
 };
 
+/* When true, do not actually call VIDDEC3_process. For benchmarking. */
+static int no_process = 0;
+
+/* When true, loop at end of playback. */
+static int loop = 0;
+
 static void
 usage(char *name)
 {
 	MSG("Usage: %s [OPTIONS] INFILE", name);
 	MSG("Test of viddec3 decoder.");
+	MSG("");
+	MSG("viddec3test options:");
+	MSG("\t-h, --help: Print this help and exit.");
+	MSG("\t--loop\tRestart playback at end of stream.");
+	MSG("\t--no-process\tDo not actually call VIDDEC3_process method. For benchmarking.");
 	MSG("");
 	disp_usage();
 }
@@ -79,6 +90,7 @@ decoder_close(struct decoder *decoder)
 	if (decoder->outArgs)        dce_free(decoder->outArgs);
 	if (decoder->input_bo)       omap_bo_del(decoder->input_bo);
 	if (decoder->demux)          demux_deinit(decoder->demux);
+	if (decoder->disp)           disp_close(decoder->disp);
 
 	free(decoder);
 }
@@ -255,10 +267,8 @@ decoder_process(struct decoder *decoder)
 	XDM2_BufDesc *outBufs = decoder->outBufs;
 	VIDDEC3_InArgs *inArgs = decoder->inArgs;
 	VIDDEC3_OutArgs *outArgs = decoder->outArgs;
-	XDAS_Int32 err;
 	struct buffer *buf;
 	int i, n;
-	suseconds_t tproc;
 
 	buf = disp_get_vid_buffer(decoder->disp);
 	if (!buf) {
@@ -266,16 +276,33 @@ decoder_process(struct decoder *decoder)
 		return -1;
 	}
 
-	n = demux_read(decoder->demux, decoder->input, decoder->input_sz);
-	if (n) {
-		inBufs->descs[0].bufSize.bytes = n;
-		inArgs->numBytes = n;
-		MSG("%p: push: %d bytes (%p)", decoder, n, buf);
-	} else {
-		/* end of input.. do we need to flush? */
-		MSG("%p: end of input", decoder);
-		inBufs->numBufs = 0;
-		inArgs->inputID = 0;
+	/* demux; in loop mode, we can do two tries at the end of the stream. */
+	for (i = 0; i < 2; i++) {
+		n = demux_read(decoder->demux, decoder->input, decoder->input_sz);
+		if (n) {
+			inBufs->descs[0].bufSize.bytes = n;
+			inArgs->numBytes = n;
+			DBG("%p: push: %d bytes (%p)", decoder, n, buf);
+		} else {
+			/* end of input.. do we need to flush? */
+			MSG("%p: end of input", decoder);
+
+			/* In loop mode: rewind and retry once. */
+			if (loop && i == 0) {
+				int err = demux_rewind(decoder->demux);
+				if (err < 0) {
+					ERROR("%p: demux_rewind returned error: %d", decoder, err);
+					return -1;
+				}
+				MSG("%p: rewound.", decoder);
+				continue;
+			}
+
+			/* Not in loop or second try: end. */
+			inBufs->numBufs = 0;
+			inArgs->inputID = 0;
+		}
+		break;
 	}
 
 	inArgs->inputID = (XDAS_Int32)buf;
@@ -284,14 +311,27 @@ decoder_process(struct decoder *decoder)
 	outBufs->descs[1].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[1]);
 	outBufs->descs[1].bufSize.bytes = omap_bo_size(buf->bo[1]);
 
-	tproc = mark(NULL);
-	err = VIDDEC3_process(decoder->codec, inBufs, outBufs, inArgs, outArgs);
-	MSG("%p: processed returned in: %ldus", decoder, (long int)mark(&tproc));
-	if (err) {
-		ERROR("%p: process returned error: %d", decoder, err);
-		ERROR("%p: extendedError: %08x", decoder, outArgs->extendedError);
-		if (XDM_ISFATALERROR(outArgs->extendedError))
-			return -1;
+	if (no_process) {
+		/* Do not process. This is for benchmarking. We need to "fake"
+		 * the outArgs. */
+		outArgs->outputID[0] = buf;
+		outArgs->outputID[1] = NULL;
+		outArgs->freeBufID[0] = buf;
+		outArgs->freeBufID[1] = NULL;
+		outArgs->outBufsInUseFlag = 0;
+
+	} else {
+		XDAS_Int32 err;
+		suseconds_t tproc;
+		tproc = mark(NULL);
+		err = VIDDEC3_process(decoder->codec, inBufs, outBufs, inArgs, outArgs);
+		DBG("%p: processed returned in: %ldus", decoder, (long int)mark(&tproc));
+		if (err) {
+			ERROR("%p: process returned error: %d", decoder, err);
+			ERROR("%p: extendedError: %08x", decoder, outArgs->extendedError);
+			if (XDM_ISFATALERROR(outArgs->extendedError))
+				return -1;
+		}
 	}
 
 	for (i = 0; outArgs->outputID[i]; i++) {
@@ -300,14 +340,14 @@ decoder_process(struct decoder *decoder)
 
 		/* get the output buffer and write it to file */
 		buf = (struct buffer *)outArgs->outputID[i];
-		MSG("%p: post buffer: %p %d,%d %d,%d", decoder, buf,
+		DBG("%p: post buffer: %p %d,%d %d,%d", decoder, buf,
 				r->topLeft.x, r->topLeft.y,
 				r->bottomRight.x, r->bottomRight.y);
 		disp_post_vid_buffer(decoder->disp, buf,
 				r->topLeft.x, r->topLeft.y,
 				r->bottomRight.x - r->topLeft.x,
 				r->bottomRight.y - r->topLeft.y);
-		MSG("%p: display in: %ldus", decoder, (long int)mark(&decoder->tdisp));
+		DBG("%p: display in: %ldus", decoder, (long int)mark(&decoder->tdisp));
 	}
 
 	for (i = 0; outArgs->freeBufID[i]; i++) {
@@ -329,7 +369,19 @@ main(int argc, char **argv)
 	int i, n, first = 0, ndecoders = 0;
 
 	for (i = 1; i < argc; i++) {
-		if (!strcmp(argv[i], "--")) {
+		if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+			usage(argv[0]);
+			exit(0);
+
+		} else if (!strcmp(argv[i], "--loop")) {
+			loop = 1;
+			argv[i] = NULL;
+
+		} else if (!strcmp(argv[i], "--no-process")) {
+			no_process = 1;
+			argv[i] = NULL;
+
+		} else if (!strcmp(argv[i], "--")) {
 			argv[first] = argv[0];
 			decoders[ndecoders++] = decoder_open(i - first, &argv[first]);
 			first = i;

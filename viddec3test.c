@@ -50,7 +50,7 @@ struct decoder {
 
 	char *input;
 	struct omap_bo *input_bo;
-	int input_sz;
+	int input_sz, uv_offset;
 
 	suseconds_t tdisp;
 
@@ -152,6 +152,11 @@ decoder_open(int argc, char **argv)
 	MSG("%p: padded_width=%d, padded_height=%d, num_buffers=%d",
 			decoder, padded_width, padded_height, num_buffers);
 
+	if (!decoder->disp->multiplanar) {
+		decoder->uv_offset = padded_width * padded_height;
+		MSG("%p: uv_offset=%d", decoder, decoder->uv_offset);
+	}
+
 	decoder->input_sz = width * height;
 	decoder->input_bo = omap_bo_new(decoder->disp->dev,
 			decoder->input_sz, OMAP_BO_WC);
@@ -240,7 +245,12 @@ MSG("displayBufsMode: %d", decoder->params->displayBufsMode);
 	decoder->outBufs = calloc(1, sizeof(XDM2_BufDesc));
 	decoder->outBufs->numBufs = 2;
 	decoder->outBufs->descs[0].memType = XDM_MEMTYPE_BO;
-	decoder->outBufs->descs[1].memType = XDM_MEMTYPE_BO;
+
+	if (decoder->disp->multiplanar) {
+		decoder->outBufs->descs[1].memType = XDM_MEMTYPE_BO;
+	} else {
+		decoder->outBufs->descs[1].memType = XDM_MEMTYPE_BO_OFFSET;
+	}
 
 	decoder->inArgs = dce_alloc(sizeof(IVIDDEC3_InArgs));
 	decoder->inArgs->size = sizeof(IVIDDEC3_InArgs);
@@ -307,9 +317,16 @@ decoder_process(struct decoder *decoder)
 
 	inArgs->inputID = (XDAS_Int32)buf;
 	outBufs->descs[0].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[0]);
-	outBufs->descs[0].bufSize.bytes = omap_bo_size(buf->bo[0]);
-	outBufs->descs[1].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[1]);
-	outBufs->descs[1].bufSize.bytes = omap_bo_size(buf->bo[1]);
+
+	if (buf->multiplanar) {
+		outBufs->descs[0].bufSize.bytes = omap_bo_size(buf->bo[0]);
+		outBufs->descs[1].buf = (XDAS_Int8 *)omap_bo_handle(buf->bo[1]);
+		outBufs->descs[1].bufSize.bytes = omap_bo_size(buf->bo[1]);
+	} else {
+		outBufs->descs[0].bufSize.bytes = decoder->uv_offset;
+		outBufs->descs[1].buf = (XDAS_Int8 *)decoder->uv_offset;
+		outBufs->descs[1].bufSize.bytes = omap_bo_size(buf->bo[0]) - decoder->uv_offset;
+	}
 
 	if (no_process) {
 		/* Do not process. This is for benchmarking. We need to "fake"

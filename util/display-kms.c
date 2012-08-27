@@ -118,6 +118,7 @@ alloc_buffer(struct display *disp, uint32_t fourcc, uint32_t w, uint32_t h)
 	buf->fourcc = fourcc;
 	buf->width = w;
 	buf->height = h;
+	buf->multiplanar = true;
 
 	buf->nbo = 1;
 
@@ -542,6 +543,7 @@ disp_kms_open(int argc, char **argv)
 
 	disp->width = 0;
 	disp->height = 0;
+	disp->multiplanar = true;
 	for (i = 0; i < (int)disp_kms->connectors_count; i++) {
 		struct connector *c = &disp_kms->connector[i];
 		connector_find_mode(disp, c);
@@ -554,8 +556,8 @@ disp_kms_open(int argc, char **argv)
 		}
 	}
 
-	MSG("using %d connectors, %dx%d display",
-			disp_kms->connectors_count, disp->width, disp->height);
+	MSG("using %d connectors, %dx%d display, multiplanar: %d",
+			disp_kms->connectors_count, disp->width, disp->height, disp->multiplanar);
 
 	return disp;
 

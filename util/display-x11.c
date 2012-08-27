@@ -107,6 +107,7 @@ get_vid_buffers(struct display *disp, uint32_t n,
 		buf->fourcc = fourcc;
 		buf->width = w;
 		buf->height = h;
+		buf->multiplanar = false;
 
 		for (j = 0; dri2bufs[i].names[j]; j++) {
 			buf->bo[j] = omap_bo_from_name(disp->dev, dri2bufs[i].names[j]);
@@ -303,6 +304,7 @@ disp_x11_open(int argc, char **argv)
 	disp->get_vid_buffers = get_vid_buffers;
 	disp->post_buffer = post_buffer;
 	disp->post_vid_buffer = post_vid_buffer;
+	disp->multiplanar = false;
 
 	/* note: set args to NULL after we've parsed them so other modules know
 	 * that it is already parsed (since the arg parsing is decentralized)

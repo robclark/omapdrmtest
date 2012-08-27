@@ -54,6 +54,7 @@ struct buffer {
 	struct omap_bo *bo[4];
 	uint32_t pitches[4];
 	struct list unlocked;
+	bool multiplanar;	/* True when Y and U/V are in separate buffers. */
 };
 
 /* State variables, used to maintain the playback rate. */
@@ -77,6 +78,8 @@ struct display {
 	int (*post_buffer)(struct display *disp, struct buffer *buf);
 	int (*post_vid_buffer)(struct display *disp, struct buffer *buf,
 			uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+
+	bool multiplanar;	/* True when Y and U/V are in separate buffers. */
 };
 
 /* Print display related help */

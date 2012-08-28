@@ -78,6 +78,7 @@ struct display {
 	int (*post_buffer)(struct display *disp, struct buffer *buf);
 	int (*post_vid_buffer)(struct display *disp, struct buffer *buf,
 			uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+	void (*close)(struct display *disp);
 
 	bool multiplanar;	/* True when Y and U/V are in separate buffers. */
 };
@@ -91,7 +92,11 @@ void disp_usage(void);
 struct display * disp_open(int argc, char **argv);
 
 /* Close display */
-void disp_close(struct display *disp);
+static inline void
+disp_close(struct display *disp)
+{
+	disp->close(disp);
+}
 
 /* Get normal RGB/UI buffers (ie. not scaled, not YUV) */
 static inline struct buffer **

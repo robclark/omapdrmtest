@@ -151,6 +151,13 @@ post_vid_buffer(struct display *disp, struct buffer *buf,
 	return 0;
 }
 
+static void
+close_x11(struct display *disp)
+{
+	struct display_x11 *disp_x11 = to_display_x11(disp);
+	XCloseDisplay(disp_x11->dpy);
+}
+
 void
 disp_x11_usage(void)
 {
@@ -304,6 +311,7 @@ disp_x11_open(int argc, char **argv)
 	disp->get_vid_buffers = get_vid_buffers;
 	disp->post_buffer = post_buffer;
 	disp->post_vid_buffer = post_vid_buffer;
+	disp->close = close_x11;
 	disp->multiplanar = false;
 
 	/* note: set args to NULL after we've parsed them so other modules know
@@ -376,10 +384,4 @@ no_x11_free:
 no_x11:
 	ERROR("unimplemented");
 	return NULL;
-}
-
-void disp_x11_close(struct display *disp)
-{
-	struct display_x11 *disp_x11 = to_display_x11(disp);
-	XCloseDisplay(disp_x11->dpy);
 }

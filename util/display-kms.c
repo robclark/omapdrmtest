@@ -357,6 +357,11 @@ post_vid_buffer(struct display *disp, struct buffer *buf,
 }
 
 static void
+close_kms(struct display *disp)
+{
+}
+
+static void
 connector_find_mode(struct display *disp, struct connector *c)
 {
 	struct display_kms *disp_kms = to_display_kms(disp);
@@ -473,6 +478,7 @@ disp_kms_open(int argc, char **argv)
 	disp->get_vid_buffers = get_vid_buffers;
 	disp->post_buffer = post_buffer;
 	disp->post_vid_buffer = post_vid_buffer;
+	disp->close = close_kms;
 
 	disp_kms->resources = drmModeGetResources(disp->fd);
 	if (!disp_kms->resources) {

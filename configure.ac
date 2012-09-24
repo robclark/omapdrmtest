@@ -74,6 +74,19 @@ else
 fi
 AM_CONDITIONAL(ENABLE_X11, [test "x$HAVE_X11" = xyes])
 
+# Check optional KMSCUBE:
+AC_ARG_ENABLE([kmscube], AS_HELP_STRING([--disable-kmscube], [disable kmscube display support]))
+AS_IF([test "x$enable_kmscube" != "xno"], [PKG_CHECK_EXISTS(gbm egl glesv2, [HAVE_KMSCUBE=yes], [HAVE_KMSCUBE=no])])
+if test "x$HAVE_KMSCUBE" = "xyes"; then
+	AC_DEFINE(HAVE_KMSCUBE, 1, [Have KMSCUBE support])
+	PKG_CHECK_MODULES(GBM, gbm)
+	PKG_CHECK_MODULES(EGL, egl)
+	PKG_CHECK_MODULES(GLES2, glesv2)
+else
+	AC_MSG_WARN([No KMSCUBE support detected, disabling KMSCUBE support])
+fi
+AM_CONDITIONAL(ENABLE_KMSCUBE, [test "x$HAVE_KMSCUBE" = xyes])
+
 # Check for libdce and libav..
 PKG_CHECK_MODULES(DCE, libdce libavformat libavutil, [HAVE_DCE=yes], [HAVE_DCE=no])
 if test "x$HAVE_DCE" = "xyes"; then

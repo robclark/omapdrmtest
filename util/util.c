@@ -34,6 +34,11 @@ void disp_x11_usage(void);
 struct display * disp_x11_open(int argc, char **argv);
 #endif
 
+#ifdef HAVE_KMSCUBE
+void disp_kmscube_usage(void);
+struct display * disp_kmscube_open(int argc, char **argv);
+#endif
+
 void
 disp_usage(void)
 {
@@ -44,6 +49,9 @@ disp_usage(void)
 
 #ifdef HAVE_X11
 	disp_x11_usage();
+#endif
+#ifdef HAVE_KMSCUBE
+	disp_kmscube_usage();
 #endif
 	disp_kms_usage();
 }
@@ -96,6 +104,11 @@ disp_open(int argc, char **argv)
 
 #ifdef HAVE_X11
 	disp = disp_x11_open(argc, argv);
+	if (disp)
+		goto out;
+#endif
+#ifdef HAVE_KMSCUBE
+	disp = disp_kmscube_open(argc, argv);
 	if (disp)
 		goto out;
 #endif

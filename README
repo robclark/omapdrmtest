@@ -6,3 +6,6 @@ sudo ./viddec3test -s 7:1920x1080 ~/Videos/h264/quantum_of_solace-tlr1_h1080p.mo
 Example to run with x11/dri2video for windowed display:
 export DISPLAY=:0.0
 ./viddec3test ~/Videos/h264/quantum_of_solace-tlr1_h1080p.mov
+
+Example to run with video on 3D cube in kms mode:
+sudo ./viddec3test --kmscube artbeats.mov --loop --fps --fov 20

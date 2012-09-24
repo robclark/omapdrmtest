@@ -33,5 +33,9 @@ if ENABLE_DCE
 libutil_la_SOURCES += demux.c
 endif
 
-libutil_la_LIBADD = @DRM_LIBS@ @X11_LIBS@ @DCE_LIBS@
-libutil_la_CFLAGS = @LIN_CFLAGS@ @DRM_CFLAGS@ @X11_CFLAGS@ @DCE_CFLAGS@ @WARN_CFLAGS@
+if ENABLE_KMSCUBE
+libutil_la_SOURCES += display-kmscube.c esTransform.c
+endif
+
+libutil_la_LIBADD = @DRM_LIBS@ @X11_LIBS@ @DCE_LIBS@ @GBM_LIBS@ @EGL_LIBS@ @GLES2_LIBS@
+libutil_la_CFLAGS = @LIN_CFLAGS@ @DRM_CFLAGS@ @X11_CFLAGS@ @DCE_CFLAGS@ @WARN_CFLAGS@ @GBM_CFLAGS@ @EGL_CFLAGS@ @GLES2_CFLAGS@
